@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+const mongoose = require("mongoose");
+const app = require('../app');
+const debug = require('debug')('backend:server');
+const http = require('http');
+const cluster = require('cluster');
+const Main = require('../routes/Module/Cluster/main');
+const { log, colors } = require('../routes/Module/Helpers/Log');
+// MongoDB connection setup with proper error handling
+async function connectToMongoDB() {
+    const url_ = 'mongodb://localhost:27017/tickdata';
+    
+    try {
+        // Set connection options with proper timeout values
+        await mongoose.connect(url_, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 30000, // Increase timeout to 30 seconds
+            connectTimeoutMS: 30000,
+            socketTimeoutMS: 60000,
+        });
+        log(colors.green, 'MONGODB', colors.reset, 'Connected to MongoDB');
+        
+        return true;
+    } catch (err) {
+        if (err instanceof mongoose.Error) {
+            log(colors.red, 'MONGODB', colors.reset, 'Mongoose Error:', err);
+        } else {
+            log(colors.red, 'MONGODB', colors.reset, 'Unknown Error:', err);
+        }
+        return false;
+    }
+}
+
+// Hàm thiết lập server HTTP
+async function setupHttpServer() {
+    var port = normalizePort('3001');
+    log(colors.green, 'HTTP', colors.reset, `HTTP port: ${port}`);
+    
+    app.set('port', port);
+    var server = http.createServer(app);
+    
+    // First connect to MongoDB
+    const connected = await connectToMongoDB();
+    if (!connected) {
+        console.error('Failed to connect to MongoDB. Exiting...');
+        process.exit(1);
+    }
+    
+    server.listen(port);
+    server.on('error', onError);
+    server.on('listening', onListening);
+    
+    function onError(error) {
+        if (error.syscall !== 'listen') {
+            throw error;
+        }
+        var bind = typeof port === 'string'
+            ? 'Pipe ' + port
+            : 'Port ' + port;
+        // Xử lý lỗi
+        switch (error.code) {
+            case 'EACCES':
+                console.error(bind + ' requires elevated privileges');
+                process.exit(1);
+                break;
+            case 'EADDRINUSE':
+                console.error(bind + ' is already in use');
+                process.exit(1);
+                break;
+            default:
+                throw error;
+        }
+    }
+    
+    function onListening() {
+        var addr = server.address();
+        var bind = typeof addr === 'string'
+            ? 'pipe ' + addr
+            : 'port ' + addr.port;
+        debug('Listening on ' + bind);
+        log(colors.green, 'HTTP', colors.reset, `HTTP server running on port ${port}`);
+        
+    }
+}
+
+// Normalize port
+function normalizePort(val) {
+    var port = parseInt(val, 10);
+    if (isNaN(port)) return val;
+    if (port >= 0) return port;
+    return false;
+}
+
+// Kiểm tra nếu đây là primary process
+if (cluster.isPrimary) {
+    // Make sure we connect to MongoDB first, then start the main process
+    (async () => {
+        log(colors.cyan, 'MASTER', colors.reset, `Primary ${process.pid} starting`);
+        
+        // Setup HTTP server first (which includes MongoDB connection)
+        await setupHttpServer();
+        
+        // Only after successful connection, start the workers
+        Main();
+    })();
+} else {
+    // Worker processes don't need to connect to MongoDB again
+    // They'll share the connection from the primary process
+    log(colors.cyan, 'WORKER', colors.reset, `Worker ${process.pid} started`);
+}
