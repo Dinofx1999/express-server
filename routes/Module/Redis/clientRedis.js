@@ -192,6 +192,7 @@ class RedisManager {
                         if (symbolInfo) {
                             symbolDetails.push({
                                 Broker: broker.broker,
+                                Broker_: broker.broker_,
                                 Index: broker.index,
                                 ...symbolInfo,
                             });
