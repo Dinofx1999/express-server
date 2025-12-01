@@ -38,16 +38,13 @@ function setupWebSocketServer(port) {
                     console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
                     if(channel.Symbol === "all") {
                         const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
-                        console.log(element);
                         element.ws.send(Mess);
                     }else if(channel.type === "destroy_broker"){
                         const Mess = JSON.stringify({type : "Destroy_Broker", Success: 1 , message: channel.Symbol});
                         element.ws.send(Mess);
-                        console.log(Mess);
                     }else{
                         const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
                         element.ws.send(Mess);
-                        console.log(Mess);
                     }
                     // if(channel.Type === "Reset"){
                     //     element.ws.send(JSON.stringify({type : "Reset", Success: 1}));
@@ -262,11 +259,11 @@ function setupWebSocketServer(port) {
                         case "SET_DATA":
                             try {
                                 const rawData = data.data;
-                                // console.log(rawData);
-                                if(Reset === true) {
-                                    await Redis.updateBrokerStatus(formatString(data[1].Broker_Get), "Connected"); 
-                                    Reset = false;
-                                }
+                                // console.log(formatString(data[1].Broker_Get));
+                                // if(Reset === true) {
+                                //     await Redis.updateBrokerStatus(formatString(data[1].Broker_Get), "Connected"); 
+                                //     Reset = false;
+                                // }
                                 
                                 // Validate data
                                 if (!rawData.broker || !rawData.index) {

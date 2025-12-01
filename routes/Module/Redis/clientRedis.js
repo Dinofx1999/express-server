@@ -220,7 +220,7 @@ class RedisManager {
             symbolKeys.forEach((key) => pipeline.del(key));
             pipeline.del(brokerKey);
             await pipeline.exec();
-            
+
             return { success: true, message: `Deleted broker "${brokerName}" and related symbols` };
         } catch (error) {
             console.error(`Error deleting broker ${brokerName}:`, error);
@@ -295,6 +295,7 @@ class RedisManager {
 
     async updateBrokerStatus(broker, newStatus) {
         try {
+            console.log(`Updating status for broker: ${broker} to ${newStatus}`);
             const key = `BROKER:${broker}`;  // ✅ Changed
             
             const raw = await this.client.get(key);
