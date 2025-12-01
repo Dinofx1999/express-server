@@ -82,6 +82,8 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
                 // REFRESH TOKEN
                 const refreshToken = jwt.sign({ username }, secret, { expiresIn: '365d' });
                 const user =  userExists;
+
+                // console.log("User logged in:", user);
                  const data = {
                   success: true,
                   accessToken,
@@ -89,8 +91,8 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
                   user: {
                     username: user.username,
                     email: user.email,
-                    role: user.role,
-                    fullname: user.fullname
+                    role: user.rule,
+                    fullname: user.name
                   }
                 };
                 
@@ -102,6 +104,8 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
         res.status(401).send({ message: 'Login failed -> error!' });
     }
   });
+
+
   router.get('/login', passport.authenticate('jwt', { session: false }), function (req, res, next) {
     console.log(req.rawHeaders[1]);
     const str = req.rawHeaders[1];
