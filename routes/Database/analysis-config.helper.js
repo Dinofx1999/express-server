@@ -127,7 +127,7 @@ function formatTimeString(date) {
 async function getAnalysisInTimeWindow(secondsAgo = 2, options = {}) {
   try {
     const collection = getCollection(String(process.env.ANALYSIS_DB) || 'analyses');
-    
+   
     const serverTime = new Date();
     const timeAgo = new Date(serverTime.getTime() - (secondsAgo * 1000));
     
@@ -211,8 +211,8 @@ async function getAnalysisInTimeWindow(secondsAgo = 2, options = {}) {
     const results = await collection
       .find(query)
       .sort(sort)
-      .skip(skip)
-      .limit(limit)
+      // .skip(skip)
+      // .limit(limit)
       .toArray();
     
     // log(colors.green, `✅ Found ${results.length} records`);

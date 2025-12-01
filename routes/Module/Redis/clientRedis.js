@@ -1,4 +1,4 @@
-const redisClient = require('./redisManager'); // Sử dụng redisManager để quản lý kết nối Redis
+const redisClient = require('./redisManager');
 const Redis = require('ioredis');
 const {log , colors} = require('../Helpers/Log');
 
@@ -6,7 +6,6 @@ class RedisManager {
     constructor() {
         this.client = redisClient;
 
-        // Tạo hai client riêng biệt cho publish và subscribe
         this.publisherClient = new Redis({
             host: 'localhost',
             port: 6379,
@@ -17,31 +16,20 @@ class RedisManager {
             port: 6379,
         });
 
-        // Thiết lập các event handlers
         this.setupEventHandlers();
     }
 
     setupEventHandlers() {
-        // Publisher events
-        this.publisherClient.on('connect', () => {
-            // console.log('Redis Publisher connected');
-        });
-
+        this.publisherClient.on('connect', () => {});
         this.publisherClient.on('error', (err) => {
             console.error('Redis Publisher Error:', err);
         });
-
-        // Subscriber events
-        this.subscriberClient.on('connect', () => {
-            // console.log('Redis Subscriber connected');
-        });
-
+        this.subscriberClient.on('connect', () => {});
         this.subscriberClient.on('error', (err) => {
             console.error('Redis Subscriber Error:', err);
         });
     }
 
-    // Publish tin nhắn tới một channel
     async publish(channel, message) {
         try {
             const payload = typeof message === 'object' ? JSON.stringify(message) : message;
@@ -53,13 +41,10 @@ class RedisManager {
         }
     }
 
-    // Đăng ký nhận tin từ channel
     subscribe(channel, callback) {
         try {
             log(colors.yellow, 'REDIS', colors.reset, `Subscribing to ${channel}`);
-            
             this.subscriberClient.subscribe(channel);
-            
             this.subscriberClient.on('message', (receivedChannel, message) => {
                 if (receivedChannel === channel) {
                     try {
@@ -70,15 +55,11 @@ class RedisManager {
                     }
                 }
             });
-
-            // log(colors.yellow, 'REDIS', colors.reset, `Subscribed to ${channel}`);
-            
         } catch (error) {
             console.error('Subscribe error:', error);
         }
     }
 
-    // Tiện ích parse JSON an toàn
     tryParseJSON(message) {
         try {
             return JSON.parse(message);
@@ -87,33 +68,32 @@ class RedisManager {
         }
     }
 
-
     async saveBrokerData(broker, data) {
-        const key = `broker:${broker}`;
+        const key = `BROKER:${broker}`;  // ✅ Changed
         await this.client.set(key, JSON.stringify(data));
-        }
-    
-    async  getAllBrokers_2() {
-  const keys = await this.client.keys('broker:*');
-  const result = {};
-  for (const key of keys) {
-    const raw = await this.client.get(key);
-    try {
-      result[key.replace('broker:', '')] = JSON.parse(raw);
-    } catch {
-      result[key.replace('broker:', '')] = raw;
     }
-  }
-  return result;
-}
-    // Lưu dữ liệu broker và symbol vào Redis
+    
+    async getAllBrokers_2() {
+        const keys = await this.client.keys('BROKER:*');  // ✅ Changed
+        const result = {};
+        for (const key of keys) {
+            const raw = await this.client.get(key);
+            try {
+                result[key.replace('BROKER:', '')] = JSON.parse(raw);  // ✅ Changed
+            } catch {
+                result[key.replace('BROKER:', '')] = raw;  // ✅ Changed
+            }
+        }
+        return result;
+    }
+
     async saveBrokerData_(data, port) {
         try {
             if (!data.Broker) {
                 throw new Error('Invalid broker data: Missing Broker name');
             }
 
-            const brokerKey = `broker:${data.Broker}`;
+            const brokerKey = `BROKER:${data.Broker}`;  // ✅ Changed
             const now = new Date();
             const formattedDate = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
@@ -145,13 +125,11 @@ class RedisManager {
         }
     }
 
-    // Lấy thông tin tất cả các Broker từ Redis
     async getAllBrokers() {
         try {
-            const keys = await this.client.keys('broker:*');
+            const keys = await this.client.keys('BROKER:*');  // ✅ Changed
             const brokers = await Promise.all(keys.map((key) => this.client.get(key)));
             
-            // Parse tất cả các broker và lọc bỏ các giá trị không hợp lệ
             const validBrokers = brokers
                 .map(broker => {
                     try {
@@ -163,13 +141,10 @@ class RedisManager {
                 })
                 .filter(broker => broker !== null);
             
-            // Sắp xếp theo Index (chuyển đổi sang số để so sánh)
             return validBrokers.sort((a, b) => {
-                // Chuyển Index sang số để so sánh
                 const indexA = parseInt(a.index, 10) || 0;
                 const indexB = parseInt(b.index, 10) || 0;
-                
-                return indexA - indexB; // Sắp xếp tăng dần
+                return indexA - indexB;
             });
         } catch (error) {
             console.error('Error getting brokers from Redis:', error);
@@ -198,10 +173,10 @@ class RedisManager {
             return [];
         }
     }
-    // Lấy thông tin chi tiết của một symbol
+
     async getSymbolDetails(symbolName) {
         try {
-            const brokerKeys = await this.client.keys('broker:*');
+            const brokerKeys = await this.client.keys('BROKER:*');  // ✅ Changed
             if (brokerKeys.length === 0) return [];
 
             const pipeline = this.client.pipeline();
@@ -215,7 +190,6 @@ class RedisManager {
                     if (broker.OHLC_Symbols && Array.isArray(broker.OHLC_Symbols)) {
                         const symbolInfo = broker.OHLC_Symbols.find((sym) => sym.symbol === symbolName && sym.trade == "TRUE" && broker.status === "True");
                         if (symbolInfo) {
-                           
                             symbolDetails.push({
                                 Broker: broker.broker,
                                 Index: broker.index,
@@ -233,12 +207,11 @@ class RedisManager {
         }
     }
 
-    // Xóa một broker và các symbol liên quan
     async deleteBroker(brokerName) {
         try {
             if (!brokerName) throw new Error('Broker name is required');
 
-            const brokerKey = `broker:${brokerName}`;
+            const brokerKey = `BROKER:${brokerName}`;  // ✅ Changed
             const brokerExists = await this.client.exists(brokerKey);
             if (!brokerExists) return { success: false, message: `Broker "${brokerName}" does not exist` };
 
@@ -255,12 +228,10 @@ class RedisManager {
         }
     }
 
-    // Xóa toàn bộ dữ liệu Redis
     async clearData() {
         try {
             await this.client.flushall();
             log(colors.green, 'REDIS', colors.reset, 'Redis data cleared successfully.');
-            
         } catch (error) {
             log(colors.red, 'REDIS', colors.reset, 'Error clearing Redis data:', error);
         }
@@ -272,12 +243,11 @@ class RedisManager {
                 throw new Error('Broker name is required');
             }
             
-            // Lấy trực tiếp broker với key chính xác
-            const brokerKey = `broker:${brokerName}`;
+            const brokerKey = `BROKER:${brokerName}`;  // ✅ Changed
             const brokerData = await this.client.get(brokerKey);
             
             if (!brokerData) {
-                return null;  // Broker không tồn tại
+                return null;
             }
             
             return JSON.parse(brokerData);
@@ -292,9 +262,9 @@ class RedisManager {
             if (!index && index !== 0) {
                 throw new Error('index is required');
             }
-            // Lua script để tìm broker theo index
+            
             const luaScript = `
-                local keys = redis.call('KEYS', 'broker:*')
+                local keys = redis.call('KEYS', 'BROKER:*')
                 local targetindex = ARGV[1]
                 
                 for _, key in ipairs(keys) do
@@ -308,9 +278,8 @@ class RedisManager {
                 end
                 
                 return nil
-            `;
+            `;  // ✅ Changed KEYS pattern
             
-            // Thực thi Lua script
             const result = await this.client.eval(luaScript, 0, index.toString());
             
             if (!result) {
@@ -325,46 +294,34 @@ class RedisManager {
     }
 
     async updateBrokerStatus(broker, newStatus) {
-  try {
-    // console.log(`Updating broker: ${broker}, newStatus: ${newStatus}`);
-    const key = `broker:${broker}`; // ← Key phải match với getPortBroker
-    
-    const raw = await this.client.get(key);
-    if (raw) {
-      const data = JSON.parse(raw);
-    
-    // Update status
-    data.status = newStatus; // "True" hoặc "False"
-    data.timeUpdated = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    
-    // Lưu lại
-    await this.client.set(key, JSON.stringify(data));
-    
-    // console.log(`✓ Đã update ${broker} status thành: ${newStatus}`);
-    return data;
+        try {
+            const key = `BROKER:${broker}`;  // ✅ Changed
+            
+            const raw = await this.client.get(key);
+            if (raw) {
+                const data = JSON.parse(raw);
+                data.status = newStatus;
+                data.timeUpdated = new Date().toISOString().slice(0, 19).replace('T', ' ');
+                await this.client.set(key, JSON.stringify(data));
+                return data;
+            }
+        } catch (error) {
+            console.error('Lỗi update status:', error.message);
+            throw error;
+        }
     }
-    
-    
-  } catch (error) {
-    console.error('Lỗi update status:', error.message);
-    throw error;
-  }
-}
+
     async getSymbol(symbol) {
-        
         try {
             if (!symbol) {
-                 throw new Error( symbol + ': Symbol is required');
+                throw new Error(symbol + ': Symbol is required');
             }
             
-            // Lấy tất cả các broker
             const brokers = await this.getAllBrokers();
             
             let result = null;
             let minIndex = Number.MAX_SAFE_INTEGER;
             
-           
-            // Duyệt qua từng broker
             for (const broker of brokers) {
                 const brokerIndex = parseInt(broker.index, 10);
                 
@@ -372,7 +329,6 @@ class RedisManager {
                     continue;
                 }
                 
-                // Tìm symbol trong danh sách
                 const symbolInfo = broker.OHLC_Symbols.find(info => info.symbol === symbol && broker.status === "True");
                 
                 if (symbolInfo && brokerIndex < minIndex) {
@@ -391,105 +347,59 @@ class RedisManager {
             return null;
         }
     }
-    // async updateBrokerStatus(brokerName, status, statusDetail = '') {
-    //     try {
-    //         if (!brokerName) {
-    //             throw new Error('Broker name is required');
-    //         }
-            
-    //         // Tạo key cho broker
-    //         const brokerKey = `broker:${brokerName}`;
-            
-    //         // Lấy dữ liệu broker hiện tại
-    //         const brokerData = await this.client.get(brokerKey);
-            
-    //         if (brokerData) {
-    //             // Parse JSON
-    //         const broker = JSON.parse(brokerData);
-            
-    //         // Cập nhật trạng thái
-    //         broker.Status = status;
-            
-    //         // Cập nhật chi tiết trạng thái nếu có
-    //         if (statusDetail) {
-    //             broker.TimeCurrent = statusDetail;
-    //         }
-    //         const now = new Date();
-    //         const formattedDate = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    //         // Cập nhật thời gian
-    //         broker.lastUpdated = formattedDate;
-            
-    //         // Lưu lại vào Redis
-    //         await this.client.set(brokerKey, JSON.stringify(broker));
-            
-    //         return true;
-    //         }
-    //         return false; // Broker không tồn tại
-            
-            
-    //     } catch (error) {
-    //         console.error(`Error updating status for broker '${brokerName}':`, error);
-    //         throw error;
-    //     }
-    // }
 
     async Broker_names() {
-    try {
-        const data = await this.getAllBrokers();
-
-        const brokers = data.map(broker => {
-            // Destructure để bỏ OHLC_Symbols
-            const { OHLC_Symbols, ...info } = broker;
-            return info;
-        });
-
-        return brokers;
-
-    } catch (error) {
-        console.error('Lỗi hàm Broker_names trong clientRedis.js', error);
+        try {
+            const data = await this.getAllBrokers();
+            const brokers = data.map(broker => {
+                const { OHLC_Symbols, ...info } = broker;
+                return info;
+            });
+            return brokers;
+        } catch (error) {
+            console.error('Lỗi hàm Broker_names trong clientRedis.js', error);
+        }
     }
-}
 
-async  saveAnalysis(Analysis, data) {
-  const key = `Analysis:${Analysis}`;
-  await this.client.set(key, JSON.stringify(data));
-}
-
-async getAnalysis() {
-  const keys = await this.client.keys('Analysis:*');
-  const result = {};
-  for (const key of keys) {
-    const raw = await this.client.get(key);
-    try {
-      result[key.replace('Analysis:', '')] = JSON.parse(raw);
-    } catch {
-      result[key.replace('Analysis:', '')] = raw;
+    async saveAnalysis(Analysis, data) {
+        const key = `Analysis:${Analysis}`;
+        await this.client.set(key, JSON.stringify(data));
     }
-  }
-  return result;
-}
 
-async getBrokerResetting() {
-  const keys = await this.client.keys('broker:*');
-  if (!keys.length) return [];
-  
-  const pipeline = this.client.pipeline();
-  keys.forEach(k => pipeline.get(k));
-  const results = await pipeline.exec();
-  
-  return results
-    .map(([, raw]) => {
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    // ✅ Chỉ lấy status !== "True"
-    .filter(broker => broker.status !== "True")
-    .sort((a, b) => Number(a.index) - Number(b.index));
-}
+    async getAnalysis() {
+        const keys = await this.client.keys('Analysis:*');
+        const result = {};
+        for (const key of keys) {
+            const raw = await this.client.get(key);
+            try {
+                result[key.replace('Analysis:', '')] = JSON.parse(raw);
+            } catch {
+                result[key.replace('Analysis:', '')] = raw;
+            }
+        }
+        return result;
+    }
+
+    async getBrokerResetting() {
+        const keys = await this.client.keys('BROKER:*');  // ✅ Changed
+        if (!keys.length) return [];
+        
+        const pipeline = this.client.pipeline();
+        keys.forEach(k => pipeline.get(k));
+        const results = await pipeline.exec();
+        
+        return results
+            .map(([, raw]) => {
+                try {
+                    return JSON.parse(raw);
+                } catch {
+                    return null;
+                }
+            })
+            .filter(Boolean)
+            .filter(broker => broker.status !== "True")
+            .sort((a, b) => Number(a.index) - Number(b.index));
+    }
 }
 
 module.exports = new RedisManager();
