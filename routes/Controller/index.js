@@ -32,7 +32,7 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
   const INDEX = Broker_Check?.index || null;
   const message = `Reset Received for Broker: ${broker} , Symbol: ${symbol}`;
 
-  if(PORT && INDEX !== '0' && INDEX !== 0 && INDEX !== null){
+  if(PORT && INDEX !== '0' && INDEX !== 0 && INDEX !== null || broker.toUpperCase() === 'ALL'){
     await Redis.publish(String(PORT), JSON.stringify({
     Symbol: symbol,
     Broker: broker,
@@ -72,5 +72,7 @@ router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next)
     'code' : 0
   });
 });
+
+
 
 module.exports = router;
