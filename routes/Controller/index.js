@@ -51,6 +51,7 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
     Symbol: symbol,
     Broker: broker,
   }));
+  console.log("Published RESET_ALL message to Redis.");
     return res.status(200).json({
       'mess' : message,
       'code' : 1

@@ -53,23 +53,13 @@ function setupWebSocketServer(port) {
 
     Redis.subscribe("RESET_ALL", async (channel, message) => {
         const Broker = channel.Broker
+        console.log(Color_Log_Success, `RESET ALL : ${channel.Symbol}`);
         for (const [id, element] of Client_Connected.entries()) {
             if(element.Broker == Broker) {
                 if (element.ws.readyState === WebSocket.OPEN) {
-                        console.log(Color_Log_Success, `RESET ALL : ${channel.Symbol}`);
+                        
                         const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
                         element.ws.send(Mess);
-                    // console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
-                    // if(channel.Symbol === "all") {
-                    //     const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
-                    //     element.ws.send(Mess);
-                    // }else if(channel.type === "destroy_broker"){
-                    //     const Mess = JSON.stringify({type : "Destroy_Broker", Success: 1 , message: channel.Symbol});
-                    //     element.ws.send(Mess);
-                    // }else{
-                    //     const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
-                    //     element.ws.send(Mess);
-                    // }
                 }
             }
         };
