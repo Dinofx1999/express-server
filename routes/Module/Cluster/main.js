@@ -9,6 +9,7 @@ const WebSocket = require('../WebSocket/forex.gateway');
 const WS_Symbol = require('../WebSocket/web.gateway.symbol');
 const WS_Broker = require('../WebSocket/web.gateway.brokers');
 const WS_Info_Broker = require('../WebSocket/web.gateway.broker.info');
+const WS_Analysis = require('../WebSocket/web.gateway.analys.mongo');
 require('dotenv').config({ quiet: true });
 //JOBs
 const JOB_Analysis = require('../Jobs/AnalysisMain');  // Phân Tích Dữ liệu Giá Forex và Lưu vào MongoDB
@@ -95,9 +96,9 @@ async function MainStream() {
             cluster.fork({ WORKER_TYPE: 'WS_WEB_SYMBOL', PORT: process.env.WS_PORT_SYMBOL || 2000 });
             cluster.fork({ WORKER_TYPE: 'WS_WEB_BROKER', PORT: process.env.WS_PORT_BROKER || 2001 });
             cluster.fork({ WORKER_TYPE: 'WS_INFO_BROKER', PORT: process.env.WS_PORT_INFO_BROKER || 2002 });
-
+            cluster.fork({ WORKER_TYPE: 'WS_ANALYSIS', PORT: process.env.WS_PORT_ANALYSIS || 2003 });
             // Fork JOB worker
-            cluster.fork({ WORKER_TYPE: 'JOBS', PORT: process.env.WS_PORT_ANALYSIS || 4000 });
+            cluster.fork({ WORKER_TYPE: 'JOBS', PORT: process.env.WS_PORT_ANALYSIS_JOB || 4000 });
             cluster.fork({ WORKER_TYPE: 'JOBS_CRON_MONGO', PORT: process.env.WS_PORT_CRON_MONGO || 4001 });
 
             // Restart worker with delay to avoid memory leak
@@ -150,6 +151,11 @@ async function MainStream() {
                     // log(colors.green, 'WORKER', colors.reset, `Starting WebSocket INFO BROKER on port ${port} PID: ${process.pid}`);
                     WS_Info_Broker(port);
                     break;
+                case 'WS_ANALYSIS':
+                    log(colors.green, 'WORKER', colors.reset, `Starting WS_ANALYSIS on port ${port} PID: ${process.pid}`);
+                    WS_Analysis(port);
+                    break;
+                
                 case 'JOBS':
                     log(colors.green, 'WORKER', colors.reset, `Starting JOB ANALYSIS PID: ${process.pid}`);
                     try {

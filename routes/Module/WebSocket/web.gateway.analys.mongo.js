@@ -1,88 +1,38 @@
 const WebSocket = require('ws');
 const http = require('http');
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const { getTimeGMT7 } = require('../Helpers/time');
 
-// Import các modules hiện tại
+// Import các modules
 const Redis = require('../Redis/clientRedis');
-// const getData = require('../Helpers/read_Data');
-// const Data = require('../Helpers/get_data');
-// const e = require('express');
-// const priceBatcher = require('./Connect/bactching');
-// const { time } = require('console');
-const requestCounts = new Map(); // Lưu số lượng request theo client ID
-const MAX_REQUESTS = 10; // Số request tối đa cho mỗi client
-const TIME_WINDOW = 1000;
-var {broker_Actived , symbolSetting} = require('../../../models/index');
 
 var Color_Log_Success = "\x1b[32m%s\x1b[0m";
 var Color_Log_Error = "\x1b[31m%s\x1b[0m";
-const Client_Connected = new Map();
 
-const {log , colors} = require('../Helpers/Log');
-const {formatString , normSym} = require('../Helpers/text.format');
+const Client_Connected = new Map();
+const clientIntervals = new Map();  // ← Khai báo ở ngoài, KHÔNG dùng this
+
+const { log, colors } = require('../Helpers/Log');
+const { formatString, normSym } = require('../Helpers/text.format');
 
 function setupWebSocketServer(port) {
 
-    Redis.subscribe(String(port), async (channel, message) => {
-        const Broker = channel.Broker
-        for (const [id, element] of Client_Connected.entries()) {
-            if(element.Broker == Broker) {
-                if (element.ws.readyState === WebSocket.OPEN) {
-                    console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
-                    if(channel.Symbol === "all") {
-                        const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
-                        console.log(element);
-                        element.ws.send(Mess);
-                    }else if(channel.type === "destroy_broker"){
-                        const Mess = JSON.stringify({type : "Destroy_Broker", Success: 1 , message: channel.Symbol});
-                        element.ws.send(Mess);
-                        console.log(Mess);
-                    }else{
-                        const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
-                        element.ws.send(Mess);
-                        console.log(Mess);
-                    }
-                    // if(channel.Type === "Reset"){
-                    //     element.ws.send(JSON.stringify({type : "Reset", Success: 1}));
-                    //     console.log(Color_Log_Success,"Reset Broker 1: ",channel.Broker);
-                    // }else if(channel.Type === "Reset_Symbol"){
-                    //     if(channel.Index !== '0'){
-                    //         const Mess = JSON.stringify({type : "Reset_1", Success: 1 , message: channel.Symbol});
-                    //     // console.log(Mess);
-                    //     element.ws.send(Mess);
-                    //     // console.log(Color_Log_Success,"Reset Symbol: ",channel.Symbol , channel.Broker , channel.Index);
-                    //     }
-                    // }
-                }
-            }
-        };
-    });
-    // Tạo HTTP server trước
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('WebSocket server đang chạy\n');
     });
 
-    // Tạo WebSocket server với options để xử lý các lỗi phổ biến
     const wss = new WebSocket.Server({ 
         server: server,
-        // Tăng kích thước tối đa của payload
-        maxPayload: 1000 * 1024 * 1024, // 1000MB
-        // Tắt nén để giảm CPU overhead
+        maxPayload: 1000 * 1024 * 1024,
         perMessageDeflate: false,
-        // Timeout cho handshake
         handshakeTimeout: 10000,
     });
-    // WS_Broker = wss;
 
-    // Xử lý lỗi ở cấp độ server
     wss.on('error', function(error) {
         console.log(Color_Log_Error, "WebSocket Server Error:", error);
-        // Không đóng server nếu có lỗi riêng lẻ
     });
 
-    // Thiết lập heartbeat để phát hiện kết nối đã ngắt
     function heartbeat() {
         this.isAlive = true;
     }
@@ -93,7 +43,6 @@ function setupWebSocketServer(port) {
                 console.log(Color_Log_Error, "Client không phản hồi, ngắt kết nối");
                 return ws.terminate();
             }
-            
             ws.isAlive = false;
             ws.ping(function noop() {});
         });
@@ -105,47 +54,104 @@ function setupWebSocketServer(port) {
 
     try {   
         wss.on('connection', async function connection(ws, req) {
+            // ⚠️ GÁN ID TRƯỚC KHI SỬ DỤNG
+            ws.id = `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            ws.isAlive = true;
+            ws.on('pong', heartbeat);
 
             try {
-                // ===== LOGIC KẾT NỐI GỐC CỦA BẠN BẮT ĐẦU TỪ ĐÂY =====
-
+                await startJob(ws, ws.id);
             } catch (error) {
-                log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error during connection setup:", error);
-                
+                log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error during connection setup:", error.message);
             }
+
             ws.on('error', function(error) {
-
+                log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "WS Error:", error.message);
             });
             
-            // Xử lý khi có message từ client
             ws.on('message', async function incoming(message) {
-
+                // Handle messages
             });
 
-            
             ws.on('close', function close() {
                 const client = Client_Connected.get(ws.id);
                 if (client) {
                     log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Client disconnected:", client.Broker);
-                    
-                    Redis.deleteBroker(client.Broker).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
+                    Redis.deleteBroker(client.Broker).catch(err => 
+                        log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err)
+                    );
                     Client_Connected.delete(ws.id);
                 }
+                // Stop job khi disconnect
+                stopJob(ws.id);
             });
         });
         
-        // Khởi động server HTTP trên port
         server.listen(port, () => {
-            // console.log(Color_Log_Success, `WebSocket server đang chạy tại port ${port}`);
             log(colors.green, 'WS WEB SYMBOL', colors.reset, `WebSocket server đang chạy tại port ${port}`);
         });
         
         return wss;
     } catch (error) {
         console.log(Color_Log_Error, "Error setting up WebSocket server:", error);
-        throw error; // Re-throw để caller biết server không khởi động được
+        throw error;
     }
 }
 
+// ✅ START JOB - BỎ this
+async function startJob(client, clientId) {
+    await stopJob(clientId);
+
+    const interval = Number(process.env.CRON_INTERVAL_BROKER_INFO || 500);
+    
+    const jobInterval = setInterval(async () => {
+        if (client.readyState !== WebSocket.OPEN) {
+            stopJob(clientId);  // ← BỎ this
+            return;
+        }
+
+        try {
+            const now = new Date().toISOString();
+            
+            // Lấy data từ Redis
+            const prices = await Redis.getAnalysis();
+            const symbols = await Redis.getAllUniqueSymbols();
+            const resetting = await Redis.getBrokerResetting();
+            
+            // Build payload
+            const payload = {
+                ...prices,
+                timestamp: now,
+                symbols: symbols,
+                resetting: resetting
+            };
+            
+            client.send(JSON.stringify(payload));
+        } catch (error) {
+            console.error(`❌ Job error for ${clientId}:`, error.message);
+            
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                    type: 'error',
+                    message: 'Failed to fetch price data',
+                    timestamp: new Date().toISOString(),
+                }));
+            }
+        }
+    }, interval);
+
+    // ← BỎ this
+    clientIntervals.set(clientId, jobInterval);
+}
+
+// ✅ STOP JOB - BỎ this
+function stopJob(clientId) {
+    const interval = clientIntervals.get(clientId);  // ← BỎ this
+    
+    if (interval) {
+        clearInterval(interval);
+        clientIntervals.delete(clientId);  // ← BỎ this
+    }
+}
 
 module.exports = setupWebSocketServer;

@@ -454,6 +454,42 @@ async  saveAnalysis(Analysis, data) {
   const key = `Analysis:${Analysis}`;
   await this.client.set(key, JSON.stringify(data));
 }
+
+async getAnalysis() {
+  const keys = await this.client.keys('Analysis:*');
+  const result = {};
+  for (const key of keys) {
+    const raw = await this.client.get(key);
+    try {
+      result[key.replace('Analysis:', '')] = JSON.parse(raw);
+    } catch {
+      result[key.replace('Analysis:', '')] = raw;
+    }
+  }
+  return result;
+}
+
+async getBrokerResetting() {
+  const keys = await this.client.keys('broker:*');
+  if (!keys.length) return [];
+  
+  const pipeline = this.client.pipeline();
+  keys.forEach(k => pipeline.get(k));
+  const results = await pipeline.exec();
+  
+  return results
+    .map(([, raw]) => {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    // ✅ Chỉ lấy status !== "True"
+    .filter(broker => broker.status !== "True")
+    .sort((a, b) => Number(a.index) - Number(b.index));
+}
 }
 
 module.exports = new RedisManager();

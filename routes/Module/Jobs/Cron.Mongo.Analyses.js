@@ -44,7 +44,7 @@ const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 10000);
       Type_1,
       Type_2
     };
-    console.log(`[JOB ${process.pid}] Fetched ${Type_1.length} Type_1 and ${Type_2.length} Type_2 analyses from MongoDB.`);
+    // console.log(`[JOB ${process.pid}] Fetched ${Type_1.length} Type_1 and ${Type_2.length} Type_2 analyses from MongoDB.`);
     await Redis.saveAnalysis(`ANALYSIS`, data);
 
   }, interval);
