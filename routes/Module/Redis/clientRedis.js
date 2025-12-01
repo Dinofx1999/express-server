@@ -323,7 +323,7 @@ class RedisManager {
             const brokers = await this.getAllBrokers();
             
             let result = null;
-            let minIndex = Number.MAX_SAFE_INTEGER;
+            let minIndex = Number.MIN_SAFE_INTEGER;
             
             for (const broker of brokers) {
                 const brokerIndex = parseInt(broker.index, 10);
@@ -332,7 +332,7 @@ class RedisManager {
                     continue;
                 }
                 
-                const symbolInfo = broker.OHLC_Symbols.find(info => info.symbol === symbol && broker.status === "True");
+                const symbolInfo = broker.OHLC_Symbols.find(info => info.symbol === symbol && broker.status !== "Disconnect");
                 
                 if (symbolInfo && brokerIndex < minIndex) {
                     minIndex = brokerIndex;
