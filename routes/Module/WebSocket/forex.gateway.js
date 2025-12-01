@@ -60,6 +60,7 @@ function setupWebSocketServer(port) {
                         const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
                         element.ws.send(Mess);
                     }else{
+                        console.log(Color_Log_Success, `Publish to Symbol: ${channel.Symbol}`);
                         const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
                         element.ws.send(Mess);
                     }
