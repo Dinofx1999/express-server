@@ -332,7 +332,7 @@ class RedisManager {
                     continue;
                 }
                 
-                const symbolInfo = broker.OHLC_Symbols.find(info => info.symbol === symbol && broker.status !== "Disconnect");
+                const symbolInfo = broker.OHLC_Symbols.find(info => info.symbol === symbol && info.trade === "TRUE" && broker.status !== "Disconnect");
                 
                 if (symbolInfo && brokerIndex < minIndex) {
                     minIndex = brokerIndex;
