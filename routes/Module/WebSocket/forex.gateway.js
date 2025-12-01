@@ -211,6 +211,7 @@ function setupWebSocketServer(port) {
                                 console.log(Color_Log_Success, "CheckPrice Request from Broker:", Broker , Symbol , reset_text);
                                 await Redis.updateBrokerStatus(formatString(Broker), reset_text); 
                                 const Response = await Redis.getSymbol(Symbol);
+                                if(Symbol==="CADJPY") console.log("CADJPY PRICE:", Response);
                                 let responseData;
                                 let logColor;
                                 if (Response) {
