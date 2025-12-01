@@ -215,7 +215,7 @@ function setupWebSocketServer(port) {
                                 const reset_text = data.data.Payload.mess;
                                 await Redis.updateBrokerStatus(formatString(Broker), reset_text); 
                                 const Response = await Redis.getSymbol(Symbol);
-                                console.log("Response:", Response);
+                                // console.log("Response:", Response);
                                 let responseData;
                                 let logColor;
                                 if (Response) {
