@@ -7,17 +7,23 @@ const {  API_ALL_INFO_BROKERS ,
           API_RESET_ALL_ONLY_SYMBOL ,
           API_CONFIG_SYMBOL , 
           API_ANALYSIS_CONFIG , API_PRICE_SYMBOL ,
-          API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL } = require('../routes/Module/Constants/API.Service');
+          API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL } = require('../Module/Constants/API.Service');
 
 
-const Redis = require('../routes/Module/Redis/clientRedis');
+const Redis = require('../Module/Redis/clientRedis');
+
+const { authRequired, requireRole } = require('../Auth/authMiddleware');
+
+// ✅ Áp dụng auth cho TẤT CẢ routes trong controller này
+// router.use(authRequired);
+
 /* Lấy Toàn Bộ Thông Tin Từ Redis */
-router.get(`/${API_ALL_INFO_BROKERS}`, async function(req, res, next) {
+router.get(`/${API_ALL_INFO_BROKERS}`,authRequired, async function(req, res, next) {
   const Data = await Redis.getAllBrokers();
   return res.status(200).json(Data);
 });
 /* Reset Tất Cả của 1 Broker*/
-router.get(`/${API_RESET}`, async function(req, res, next) {
+router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
   // const Data = await Redis.getAllBrokers();
   // return res.status(200).json(Data);
   const { broker , symbol} = req.params;
@@ -47,7 +53,7 @@ router.get(`/${API_RESET}`, async function(req, res, next) {
   });
 });
 
-router.get(`/${API_DESTROY_BROKER}`, async function(req, res, next) {
+router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next) {
   const { broker} = req.params;
   const Broker_Check = await Redis.getBroker(broker);
   const PORT = Broker_Check?.port || null;

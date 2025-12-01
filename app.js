@@ -4,12 +4,12 @@ var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 const cors = require('cors');
-var indexRouter = require('./routes/index');
+var indexRouter = require('./routes/Controller/index');
 var usersRouter = require('./routes/users');
 
-var Login = require('./routes/auth');
-const symbolConfig = require('./routes/symbolConfig');
-const ErrorAnalysis = require('./routes/errors');
+var Login = require('./routes/Controller/auth.js');
+const symbolConfig = require('./routes/Controller/symbolConfig.js');
+const ErrorAnalysis = require('./routes/Controller/errors.js');
 const {  API_ALL_INFO_BROKERS , 
           VERSION,
           API_PORT_BROKER_ENDPOINT, 

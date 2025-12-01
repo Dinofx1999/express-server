@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
-var {symbolConfigs , spreadPlus , symbolSetting} = require('../models/index');
-const Redis = require('../routes/Module/Redis/clientRedis');
+var {symbolConfigs , spreadPlus , symbolSetting} = require('../../models/index');
+const Redis = require('../Module/Redis/clientRedis');
 const moment = require('moment-timezone');
 
 /* GET home page. */

@@ -219,8 +219,8 @@ class RedisManager {
             const pipeline = this.client.pipeline();
             symbolKeys.forEach((key) => pipeline.del(key));
             pipeline.del(brokerKey);
-
             await pipeline.exec();
+            
             return { success: true, message: `Deleted broker "${brokerName}" and related symbols` };
         } catch (error) {
             console.error(`Error deleting broker ${brokerName}:`, error);

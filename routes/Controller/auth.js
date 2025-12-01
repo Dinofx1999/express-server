@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const {userLogin} = require("../models/index");
-const { validateSchema } = require('../validations/validateSchema');
-const { loginSchema, registerSchema } = require('../validations/schemas.yup');
-const {log , colors} = require('../routes/Module/Helpers/Log');
+const {userLogin} = require("../../models/index");
+const { validateSchema } = require('../../validations/validateSchema');
+const { loginSchema, registerSchema } = require('../../validations/schemas.yup');
+const {log , colors} = require('../Module/Helpers/Log');
 
 //HTTP Basic Auth
 const passport = require('passport');
@@ -13,7 +13,7 @@ const jwt = require('jsonwebtoken');
 const JwtStrategy = require('passport-jwt').Strategy;
 const ExtractJwt = require('passport-jwt').ExtractJwt; //Giải mã ngược Token
 //JWT Setting
-const jwtSettings = require('./Module/Constants/jwtSetting');
+const jwtSettings = require('../Module/Constants/jwtSetting');
 const {  API_ALL_INFO_BROKERS , 
           VERSION,
           API_PORT_BROKER_ENDPOINT, 
@@ -21,7 +21,7 @@ const {  API_ALL_INFO_BROKERS ,
           API_RESET_ALL_ONLY_SYMBOL ,
           API_CONFIG_SYMBOL , 
           API_ANALYSIS_CONFIG , API_PRICE_SYMBOL ,
-          API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL ,API_LOGIN,API_REGISTER } = require('./Module/Constants/API.Service');
+          API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL ,API_LOGIN,API_REGISTER } = require('../Module/Constants/API.Service');
 
 router.post(API_REGISTER, validateSchema(registerSchema), async function (req, res, next) {
     try {

@@ -1,6 +1,6 @@
 var express = require('express');
 var router = express.Router();
-var {  ErrorAnalysis} = require('../models/index');
+var {  ErrorAnalysis} = require('../../models/index');
 
 /* GET home page. */
 
