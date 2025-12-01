@@ -202,7 +202,7 @@ function setupWebSocketServer(port) {
                                 const Index = data.data.index;
                                 const reset_text = data.data.Payload.mess;
                                 // console.log(Color_Log_Success, "CheckPrice Request from Broker:", Broker , Symbol , reset_text);
-                                await Redis.updateBrokerStatus(formatString(Broker), reset_text);   
+                                
                                 const Response = await Redis.getSymbol(Symbol);
                                 let responseData;
                                 let logColor;
@@ -236,6 +236,8 @@ function setupWebSocketServer(port) {
                                     colors.reset,
                                     `Broker ${Broker} -> Symbol: ${Symbol} <=> Broker Check: ${responseData.Broker} , Processed: ${reset_text}`
                                 );
+
+                                
                                 ws.send(JSON.stringify(responseData));
                             } catch (error) {
                                 console.log(Color_Log_Error, "Error -> CheckPrice: ", error);
@@ -321,12 +323,12 @@ function setupWebSocketServer(port) {
             });
 
             
-            ws.on('close', function close() {
+            ws.on('close', async function close() {
                 const client = Client_Connected.get(ws.id);
                 if (client) {
                     log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Client disconnected:", client.Broker);
                     
-                    Redis.deleteBroker(client.Broker).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
+                    await Redis.deleteBroker(client.Broker).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
                     Client_Connected.delete(ws.id);
                 }
             });
