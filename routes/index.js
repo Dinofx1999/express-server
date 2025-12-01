@@ -23,8 +23,10 @@ router.get(`/${API_RESET}`, async function(req, res, next) {
   const { broker , symbol} = req.params;
   const Broker_Check = await Redis.getBroker(broker);
   const PORT = Broker_Check?.port || null;
+  const INDEX = Broker_Check?.index || null;
   const message = `Reset Received for Broker: ${broker} , Symbol: ${symbol}`;
-  if(PORT){
+
+  if(PORT && INDEX !== '0' && INDEX !== 0 && INDEX !== null){
     await Redis.publish(String(PORT), JSON.stringify({
     Symbol: symbol,
     Broker: broker,
@@ -33,12 +35,16 @@ router.get(`/${API_RESET}`, async function(req, res, next) {
       'mess' : message,
       'code' : 1
     });
+  }else if(PORT && (INDEX === '0' || INDEX === 0)){
+    return res.status(200).json({
+      'mess' : `Broker '${broker}' is in index 0, cannot reset.`,
+      'code' : 0
+    });
   }
   return res.status(400).json({
-    'mess' : `Broker ${broker} Not Found`,
+    'mess' : `Broker '${broker}' Not Found`,
     'code' : 0
   });
-  
 });
 
 router.get(`/${API_DESTROY_BROKER}`, async function(req, res, next) {

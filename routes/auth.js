@@ -72,7 +72,7 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
                 const secret = jwtSettings.SECRET;
             
                 // ACCESS TOKEN
-                const token = jwt.sign(payload, secret, {
+                const accessToken = jwt.sign(payload, secret, {
                     expiresIn: 24 * 60 * 60, // 24 giờ
                     audience: jwtSettings.AUDIENCE,
                     issuer: jwtSettings.ISSUER,
@@ -81,9 +81,20 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
             
                 // REFRESH TOKEN
                 const refreshToken = jwt.sign({ username }, secret, { expiresIn: '365d' });
-                const Info =  userExists
+                const user =  userExists;
+                 const data = {
+                  success: true,
+                  accessToken,
+                  refreshToken,
+                  user: {
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                    fullname: user.fullname
+                  }
+                };
                 
-                res.send({ message: 'Login success!', token, refreshToken , Info });
+                res.send(data);
             } else {
                 res.status(401).send({ message: 'Login failed!' });
             }

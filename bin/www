@@ -6,32 +6,32 @@ const http = require('http');
 const cluster = require('cluster');
 const Main = require('../routes/Module/Cluster/main');
 const { log, colors } = require('../routes/Module/Helpers/Log');
-// MongoDB connection setup with proper error handling
-async function connectToMongoDB() {
-    const url_ = 'mongodb://localhost:27017/tickdata';
-    
-    try {
-        // Set connection options with proper timeout values
-        await mongoose.connect(url_, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            serverSelectionTimeoutMS: 30000, // Increase timeout to 30 seconds
-            connectTimeoutMS: 30000,
-            socketTimeoutMS: 60000,
-        });
-        log(colors.green, 'MONGODB', colors.reset, 'Connected to MongoDB');
-        
-        return true;
-    } catch (err) {
-        if (err instanceof mongoose.Error) {
-            log(colors.red, 'MONGODB', colors.reset, 'Mongoose Error:', err);
-        } else {
-            log(colors.red, 'MONGODB', colors.reset, 'Unknown Error:', err);
-        }
-        return false;
-    }
-}
+process.env.DOTENV_CONFIG_SILENT = "true";
+process.env.DOTENV_CONFIG_DEBUG = "false";
 
+require('dotenv').config({ quiet: true });
+// MongoDB connection setup with proper error handling
+// async function connectToMongoDB() {
+//     const url_ = 'mongodb://127.0.0.1:27017/trading_db';
+//     try {
+//         await mongoose.connect(url_, {
+//             serverSelectionTimeoutMS: 30000,
+//             connectTimeoutMS: 30000,
+//             socketTimeoutMS: 60000,
+//         });
+//         log(colors.green, 'MONGODB', colors.reset, 'Connected to MongoDB');
+//         return true;
+//     } catch (err) {
+//         // In ra toàn bộ lỗi để debug
+//         console.error('=== MONGODB ERROR DETAILS ===');
+//         console.error('Error name:', err.name);
+//         console.error('Error message:', err.message);
+//         console.error('Error code:', err.code);
+//         console.error('Full error:', err);
+//         console.error('=============================');
+//         return false;
+//     }
+// }
 // Hàm thiết lập server HTTP
 async function setupHttpServer() {
     var port = normalizePort('3001');
@@ -41,11 +41,11 @@ async function setupHttpServer() {
     var server = http.createServer(app);
     
     // First connect to MongoDB
-    const connected = await connectToMongoDB();
-    if (!connected) {
-        console.error('Failed to connect to MongoDB. Exiting...');
-        process.exit(1);
-    }
+    // const connected = await connectToMongoDB();
+    // if (!connected) {
+    //     console.error('Failed to connect to MongoDB. Exiting...');
+    //     process.exit(1);
+    // }
     
     server.listen(port);
     server.on('error', onError);
@@ -102,7 +102,7 @@ if (cluster.isPrimary) {
         await setupHttpServer();
         
         // Only after successful connection, start the workers
-        Main();
+        // Main();
     })();
 } else {
     // Worker processes don't need to connect to MongoDB again

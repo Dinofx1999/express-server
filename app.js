@@ -44,7 +44,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(``, indexRouter);
 app.use(`/${VERSION}/users`, usersRouter);
 
-app.use(`/${VERSION}/auth`, Login);
+app.use(`/auth`, Login);
 app.use(`/${VERSION}/symbol`, symbolConfig);
 app.use(`/${VERSION}/errors`, ErrorAnalysis);
 

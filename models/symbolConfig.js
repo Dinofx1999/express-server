@@ -42,4 +42,4 @@ const symbolConfigsSchema = new Schema({
   versionKey: false,
 });
 
-module.exports = mongoose.model('symbolConfigs', symbolConfigsSchema);
+module.exports = mongoose.model(String(process.env.SYMBOL_CONFIGS || 'symbol_configs'), symbolConfigsSchema);

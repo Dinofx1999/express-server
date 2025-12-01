@@ -144,10 +144,8 @@ function setupWebSocketServer(port) {
                         const brokerData = await Redis.findBrokerByIndex(Index_Broker);
                         if(brokerData == null) {
                             const Broker_Check = await Redis.getBroker(formattedBrokerName);
-                            console.log(Broker_Check);
-
                             if(Broker_Check == null) {
-                                log(colors.green, `FX_CLIENT - ${port} `, colors.magenta, message);
+                                log(colors.green, `FX_CLIENT - ${port} `, colors.green, message);
                                 ws.send(JSON.stringify({type : String(process.env.CHECK_FIRT), Success: 1 , message: `Version = ${Version} , Index = ${Index_Broker} , Broker = ${BrokerName} => Success`, Data: getTimeGMT7('datetime')}));
                                 // Lưu client đã connect
                                 Client_Connected.set(ws.id, {ws, Broker: formattedBrokerName});

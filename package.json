@@ -2,6 +2,7 @@
   "name": "backend",
   "version": "0.0.0",
   "private": true,
+   "type": "commonjs",
   "scripts": {
     "start": "node --max-old-space-size=16384 ./bin/www"
   },

@@ -4,12 +4,15 @@ const mongoose = require("mongoose");
 const {log , colors} = require('../Helpers/Log');
 // Import các module
 const Redis = require('../Redis/clientRedis');
+//WebSocket
 const WebSocket = require('../WebSocket/forex.gateway');
-// const Run_Lech_Gia = require('./PhanTich/Lech_Gia');
-// const Web_Frontend = require('./WS_Web_FE');
-// const WS_Symbol = require('../Controller/WS_Symbol');
-// const WS_Symbol_Broker = require('../Controller/WS_Symbol_Broker');
-// const WS_Brokers = require('../Controller/WS_Brokers');
+const WS_Symbol = require('../WebSocket/web.gateway.symbol');
+const WS_Broker = require('../WebSocket/web.gateway.brokers');
+const WS_Info_Broker = require('../WebSocket/web.gateway.broker.info');
+require('dotenv').config({ quiet: true });
+//JOBs
+const JOB_Analysis = require('../Jobs/AnalysisMain');  // Phân Tích Dữ liệu Giá Forex và Lưu vào MongoDB
+const JOB_Cron_DatAnalyses_MongoDB = require('../Jobs/Cron.Mongo.Analyses'); // Cron Lưu Dữ liệu Phân Tích từ MongoDB vào Redis
 
 // //CopyTrade
 // const WS_Mater_CopyTrade = require('./CopyTrade/WS_Mater_CopyTrade');
@@ -41,26 +44,27 @@ const WS_PORTS_COPYTRADE_CUSTOMER = [
 ];
 
 async function connectToMongoDB() {
-    const url_ = 'mongodb://localhost:27017/tickdata';
+    // Kiểm tra nếu đã kết nối rồi thì bỏ qua
+    if (mongoose.connection.readyState === 1) {
+        log(colors.green, 'MONGODB', colors.reset, 'Already connected to MongoDB');
+        return true;
+    }
+    
+    const url_ = String(process.env.MONGO_URI || 'mongodb://localhost:27017/forex_db');
+    
     try {
         await mongoose.connect(url_, {
             serverSelectionTimeoutMS: 30000,
             connectTimeoutMS: 30000,
             socketTimeoutMS: 60000,
         });
-        log(colors.green, 'MONGODB', colors.reset, 'Connected to MongoDB');
-        
+        log(colors.green, 'MONGODB', colors.reset, `Connected to MongoDB , URL: ${url_}`);
         return true;
     } catch (err) {
-        if (err instanceof mongoose.Error) {
-            log(colors.red, 'MONGODB', colors.reset, 'Mongoose Error:', err);
-        } else {
-            log(colors.red, 'MONGODB', colors.reset, 'Unknown Error:', err);
-        }
+        console.error('MongoDB Error:', err.message);
         return false;
     }
 }
-
 async function MainStream() {
     try {
         const mongoConnected = await connectToMongoDB();
@@ -83,10 +87,18 @@ async function MainStream() {
 
             // Fork workers for each WebSocket port
             for (let i = 0; i < WS_PORTS.length; i++) {
-                cluster.fork({ WORKER_TYPE: 'WS', PORT: WS_PORTS[i] });
+                cluster.fork({ WORKER_TYPE: 'WS_FOREX', PORT: WS_PORTS[i] });
                 log(colors.cyan, 'MASTER', colors.reset, `Forking worker for WS on port ${WS_PORTS[i]}`);
                 
             }
+            
+            cluster.fork({ WORKER_TYPE: 'WS_WEB_SYMBOL', PORT: process.env.WS_PORT_SYMBOL || 2000 });
+            cluster.fork({ WORKER_TYPE: 'WS_WEB_BROKER', PORT: process.env.WS_PORT_BROKER || 2001 });
+            cluster.fork({ WORKER_TYPE: 'WS_INFO_BROKER', PORT: process.env.WS_PORT_INFO_BROKER || 2002 });
+
+            // Fork JOB worker
+            cluster.fork({ WORKER_TYPE: 'JOBS', PORT: process.env.WS_PORT_ANALYSIS || 4000 });
+            cluster.fork({ WORKER_TYPE: 'JOBS_CRON_MONGO', PORT: process.env.WS_PORT_CRON_MONGO || 4001 });
 
             // Restart worker with delay to avoid memory leak
             cluster.on('exit', (worker, code, signal) => {
@@ -122,9 +134,37 @@ async function MainStream() {
             });
 
             switch (workerType) {
-                case 'WS':
-                    log(colors.green, 'WORKER', colors.reset, `Starting WebSocket on port ${port} PID: ${process.pid}`);
+                case 'WS_FOREX':
+                    // log(colors.green, 'WORKER', colors.reset, `Starting WebSocket FOREX on port ${port} PID: ${process.pid}`);
                     WebSocket(port);
+                    break;
+                case 'WS_WEB_SYMBOL':
+                    // log(colors.green, 'WORKER', colors.reset, `Starting WebSocket WEB on port ${port} PID: ${process.pid}`);
+                    WS_Symbol(port);
+                    break;
+                case 'WS_WEB_BROKER':
+                    // log(colors.green, 'WORKER', colors.reset, `Starting WebSocket WEB BROKER on port ${port} PID: ${process.pid}`);
+                    WS_Broker(port);
+                    break;
+                case 'WS_INFO_BROKER':
+                    // log(colors.green, 'WORKER', colors.reset, `Starting WebSocket INFO BROKER on port ${port} PID: ${process.pid}`);
+                    WS_Info_Broker(port);
+                    break;
+                case 'JOBS':
+                    log(colors.green, 'WORKER', colors.reset, `Starting JOB ANALYSIS PID: ${process.pid}`);
+                    try {
+                        await JOB_Analysis();
+                    } catch (err) {
+                        console.error('JOB_Analysis Error:', err);
+                    }
+                    break;
+                case 'JOBS_CRON_MONGO':
+                    log(colors.green, 'WORKER', colors.reset, `Starting JOB CRON MONGO PID: ${process.pid}`);
+                    try {
+                        await JOB_Cron_DatAnalyses_MongoDB();
+                    } catch (err) {
+                        console.error('JOB_Cron_DatAnalyses_MongoDB Error:', err);
+                    }
                     break;
                 default:
                     log(colors.red, 'WORKER', colors.reset, `Unknown worker type: ${workerType}`);
