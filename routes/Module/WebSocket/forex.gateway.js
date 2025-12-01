@@ -108,6 +108,7 @@ function setupWebSocketServer(port) {
 
     try {   
         wss.on('connection', async function connection(ws, req) {
+            
         //    SaveAll_Info();
             // console.log(brokersCache);
             // Thiết lập heartbeat cho kết nối mới
@@ -127,6 +128,7 @@ function setupWebSocketServer(port) {
                 var Version = req.rawHeaders[12].split("-")[0].trim();
                 var Index_Broker = req.rawHeaders[12].split("-")[1].trim();
                 let VerNum = parseFloat(Version);
+                await Redis.deleteBroker(formattedBrokerName).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
                 
               
                 // Kiểm tra version
