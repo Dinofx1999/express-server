@@ -14,7 +14,7 @@ const requestCounts = new Map(); // Lưu số lượng request theo client ID
 const MAX_REQUESTS = 10; // Số request tối đa cho mỗi client
 const TIME_WINDOW = 1000;
 var {broker_Actived , symbolSetting} = require('../../../models/index');
-let VersionCurrent = 2.1;
+let VersionCurrent = process.env.VERSION || 1.0;
 // Màu cho console.log
 var Color_Log_Success = "\x1b[32m%s\x1b[0m";
 var Color_Log_Error = "\x1b[31m%s\x1b[0m";
