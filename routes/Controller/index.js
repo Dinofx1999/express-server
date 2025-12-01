@@ -4,7 +4,7 @@ const {  API_ALL_INFO_BROKERS ,
           API_PORT_BROKER_ENDPOINT, 
           API_DESTROY_BROKER,
           API_RESET , 
-          API_RESET_ALL_ONLY_SYMBOL ,
+          VERSION ,
           API_CONFIG_SYMBOL , 
           API_ANALYSIS_CONFIG , API_PRICE_SYMBOL ,
           API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL } = require('../Module/Constants/API.Service');
@@ -13,6 +13,7 @@ const {  API_ALL_INFO_BROKERS ,
 const Redis = require('../Module/Redis/clientRedis');
 
 const { authRequired, requireRole } = require('../Auth/authMiddleware');
+const { calculatePercentage } = require('../Module/Helpers/text.format');
 
 // ✅ Áp dụng auth cho TẤT CẢ routes trong controller này
 // router.use(authRequired);
@@ -82,6 +83,57 @@ router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next)
     'code' : 0
   });
 });
+
+router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res, next) {
+  resetBrokersLoop();
+  res.status(200).json({ message: "Reset all brokers initiated." });
+});
+
+
+// ✅ Hàm chạy background với while loop
+async function resetBrokersLoop() {
+const allBrokers = await Redis.getAllBrokers();
+if(allBrokers.length <= 1){
+  console.log('❌ No brokers to reset');
+  return;
+}
+console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
+let index = 1;
+  while (index < allBrokers.length && allBrokers.length > 1) {
+    const allBrokers_ = await Redis.getAllBrokers();
+    try {
+      if (allBrokers_.length === 0) {
+        console.log('❌ No brokers found');
+        break;
+      }
+      if(index === 1 ){
+        index++;
+         console.log(`✅ Continue Reset: ${allBrokers[index-1].broker_}`);
+         await Redis.publish("RESET_ALL", JSON.stringify({
+          Symbol: "ALL",
+          Broker: allBrokers[index-1].broker,
+        }));
+      }
+      // const status = String(allBrokers_[index-1].status);
+      // const Per_status = Number(Number(calculatePercentage(status)).toFixed(0));
+      // // console.log(`🔄 Resetting broker:${index-1} : ${status} - ${Per_status}`);
+      // if(Per_status >= 30){
+      //   index++;
+      //    this.appService.resetBroker(allBrokers[index-1].broker_, "ALL");
+      //   console.log(`✅ Continue Reset: ${allBrokers[index-1].broker_}`);
+      // }
+      // if(index === allBrokers.length){
+      //   console.log('✅ Completed resetting all brokers');
+      //   break;
+      // }
+      
+    } catch (error) {
+      console.error('❌ Error in reset loop:', error);
+      // Chờ rồi retry
+      // await new Promise(resolve => setTimeout(resolve, 10000));
+    }
+  }
+}
 
 
 
