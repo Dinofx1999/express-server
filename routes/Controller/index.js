@@ -114,18 +114,23 @@ let index = 1;
           Broker: allBrokers[index-1].broker,
         }));
       }
-      // const status = String(allBrokers_[index-1].status);
-      // const Per_status = Number(Number(calculatePercentage(status)).toFixed(0));
+      const status = String(allBrokers_[index-1].status);
+      const Per_status = Number(Number(calculatePercentage(status)).toFixed(0));
       // // console.log(`🔄 Resetting broker:${index-1} : ${status} - ${Per_status}`);
-      // if(Per_status >= 30){
-      //   index++;
-      //    this.appService.resetBroker(allBrokers[index-1].broker_, "ALL");
-      //   console.log(`✅ Continue Reset: ${allBrokers[index-1].broker_}`);
-      // }
-      // if(index === allBrokers.length){
-      //   console.log('✅ Completed resetting all brokers');
-      //   break;
-      // }
+      if(Per_status >= 30){
+        index++;
+        //  this.appService.resetBroker(allBrokers[index-1].broker_, "ALL");
+
+         await Redis.publish("RESET_ALL", JSON.stringify({
+          Symbol: "ALL-BROKERS",
+          Broker: allBrokers[index-1].broker,
+        }));
+        console.log(`✅ Continue Reset: ${allBrokers[index-1].broker_}`);
+      }
+      if(index === allBrokers.length){
+        console.log('✅ Completed resetting all brokers');
+        break;
+      }
       
     } catch (error) {
       console.error('❌ Error in reset loop:', error);
