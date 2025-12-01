@@ -55,10 +55,14 @@ function setupWebSocketServer(port) {
         const Broker = channel.Broker
         console.log(Color_Log_Success, `RESET ALL : ${channel.Symbol}`);
         for (const [id, element] of Client_Connected.entries()) {
-                if (element.ws.readyState === WebSocket.OPEN) {
+                if (element.ws.readyState === WebSocket.OPEN && element.Broker == Broker) {
+                    if(channel.Symbol === "ALL-BROKERS") {
+                        const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
+                        element.ws.send(Mess);
+                    }else{
                         const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
                         element.ws.send(Mess);
-                        
+                    }
                 }
         };
     });
