@@ -50,7 +50,7 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
   }else if(broker.toUpperCase() === 'ALL'){
     await Redis.publish("RESET_ALL", JSON.stringify({
     Symbol: symbol,
-    Broker: broker,
+    Broker: "ALL-BROKERS",
   }));
   console.log("Published RESET_ALL message to Redis.");
     return res.status(200).json({
