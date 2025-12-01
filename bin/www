@@ -34,7 +34,7 @@ require('dotenv').config({ quiet: true });
 // }
 // Hàm thiết lập server HTTP
 async function setupHttpServer() {
-    var port = normalizePort('3001');
+    var port = normalizePort(process.env.HTTP_PORT || '3001');
     log(colors.green, 'HTTP', colors.reset, `HTTP port: ${port}`);
     
     app.set('port', port);

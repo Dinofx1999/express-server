@@ -34,7 +34,7 @@ const Color_Log_Success = "\x1b[32m%s\x1b[0m";
 // ];
 
 const WS_PORTS = [
-    5002, 5003, 5004
+    1002, 1003, 1004
 ];
 
 const WS_PORTS_COPYTRADE_MASTER = [
