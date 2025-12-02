@@ -311,6 +311,7 @@ async getMultipleSymbolDetails(symbols) {
                     Broker_: broker.broker_,
                     Status: broker.status,
                     Index: broker.index,
+                    Typeaccount: broker.typeaccount,
                     ...symbolInfo,
                 };
 

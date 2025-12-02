@@ -23,8 +23,8 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             if(SESSION === "Tokyo") SPREAD_X_CURRENT = symbolConfig_data.Tokyo;
             if(SESSION === "London") SPREAD_X_CURRENT = symbolConfig_data.London;
             if(SESSION === "NewYork") SPREAD_X_CURRENT = symbolConfig_data.NewYork;
-            if( CURRENT.typeaccount === "STD") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
-            if( CURRENT.typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
+            if( CURRENT.Typeaccount === "STD") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
+            if( CURRENT.Typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
         
 

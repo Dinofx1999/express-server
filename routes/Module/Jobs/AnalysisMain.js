@@ -74,7 +74,6 @@ function runAnalysisLoop() {
             const priceData = priceDataMap.get(sym);
 
             if (!priceData || priceData.length <= 1) return;
-            if(sym === 'BTCUSD') console.log(symbolConfig);
             await Analysis(priceData, sym, symbolConfig);
           } catch (err) {
             console.error(`[Analysis] Error ${sym}:`, err.message);
