@@ -28,7 +28,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         }
         
 
-        if(symbol === "BTCUSD" && CURRENT.Broker === "FXBIG")console.log(`Session: ${SESSION} |Spread_Min: ${SPREAD_MIN_CURRENT} | Spread_X: ${SPREAD_X_CURRENT} | CURRENT.typeaccount : ${CURRENT.typeaccount }`);
+        // if(symbol === "BTCUSD" && CURRENT.Broker === "FXBIG")console.log(`Session: ${SESSION} |Spread_Min: ${SPREAD_MIN_CURRENT} | Spread_X: ${SPREAD_X_CURRENT} | CURRENT.typeaccount : ${CURRENT.typeaccount }`);
         // if(symbol === "BTCUSD" && CURRENT.Broker === "FXBIG")console.log(CURRENT);
 
         //Check BUY
