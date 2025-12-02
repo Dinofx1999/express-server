@@ -57,6 +57,7 @@ function setupWebSocketServer(port) {
                 if (element.ws.readyState === WebSocket.OPEN) {
                     if(element.Broker == Broker){
                         if(channel.Symbol === "ALL-BROKERS") {
+                        console.log(Color_Log_Success, Broker);
                         const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
                         element.ws.send(Mess);
                     }else{
