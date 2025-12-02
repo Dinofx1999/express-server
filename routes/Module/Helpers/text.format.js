@@ -1,5 +1,5 @@
 function formatString(str) {
-  return normSym(str.trim().replace(/\s+/g, '-'));
+  return str.trim().replace(/\s+/g, '-').toLowerCase();
 }
 
 function normSym(s) {
