@@ -68,7 +68,7 @@ function runAnalysisLoop() {
             const priceData = priceDataMap.get(sym);
 
             if (!priceData || priceData.length <= 1) return;
-
+            console.log(priceData);
             await Analysis(priceData, sym, symbolConfig);
           } catch (err) {
             console.error(`[Analysis] Error ${sym}:`, err.message);
