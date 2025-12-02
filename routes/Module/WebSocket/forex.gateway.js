@@ -55,7 +55,7 @@ function setupWebSocketServer(port) {
         const Broker = channel.Broker
         for (const [id, element] of Client_Connected.entries()) {
                 if (element.ws.readyState === WebSocket.OPEN) {
-                    console.log(Color_Log_Success, `Publish to Broker: ${Broker}`);
+                    console.log(Color_Log_Success, `Publish to Broker: ${element.Broker}`);
                     if(element.Broker == Broker){
                         if(channel.Symbol === "ALL-BROKERS") {
                         
