@@ -59,7 +59,7 @@ function runAnalysisLoop() {
 
       // 2️⃣ Lấy TẤT CẢ price data 1 lần - 1 call (thay vì 272 calls!)
       const priceDataMap = await Redis.getMultipleSymbolDetails(symbols);
-
+      console.log(priceDataMap);
       // 3️⃣ Phân tích song song
       await Promise.all(
         symbols.map(async (sym) => {
