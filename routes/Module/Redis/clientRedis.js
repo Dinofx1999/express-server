@@ -259,6 +259,27 @@ class RedisManager {
         }
     }
 
+    // Lấy nhiều symbols cùng 1 lúc - chỉ 1 network call
+    async getMultipleSymbolDetails(symbols) {
+    if (!symbols || symbols.length === 0) return new Map();
+
+    const pipeline = this.client.pipeline();
+
+    for (const sym of symbols) {
+        // Thay bằng command bạn đang dùng trong getSymbolDetails
+        pipeline.lrange(`symbol:${sym}`, 0, -1); // hoặc hget, get, etc.
+    }
+
+    const results = await pipeline.exec();
+
+    const map = new Map();
+    symbols.forEach((sym, idx) => {
+        const [err, data] = results[idx] || [];
+        map.set(sym, err ? [] : data);
+    });
+
+    return map;
+    }
     async findBrokerByIndex(index) {
         try {
             if (!index && index !== 0) {

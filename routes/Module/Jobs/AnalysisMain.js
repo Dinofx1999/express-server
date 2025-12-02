@@ -6,7 +6,7 @@ const { getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
 const { colors } = require('../Helpers/Log');
 
 let ConfigSymbol = [];
-let symbolConfigMap = new Map(); // Cache config dạng Map để lookup O(1)
+let symbolConfigMap = new Map();
 
 async function startJob() {
   console.log(`[JOB ${process.pid}] Analysis booting...`);
@@ -32,7 +32,6 @@ async function startJob() {
   console.log(`[JOB ${process.pid}] Analysis ready.`);
 }
 
-// Cache config vào Map để lookup nhanh O(1)
 async function refreshConfig() {
   ConfigSymbol = await getAllSymbolConfigs();
   symbolConfigMap.clear();
@@ -44,47 +43,50 @@ async function refreshConfig() {
 
 function runAnalysisLoop() {
   const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 500);
-  const TIMEOUT_WARN = 1000; // Cảnh báo nếu > 1 giây
+  const TIMEOUT_WARN = 1000;
 
   async function tick() {
     const startTime = Date.now();
 
     try {
+      // 1️⃣ Lấy danh sách symbols - 1 call
       const ALL_Symbol = await Redis.getAllUniqueSymbols();
+      
+      // Chuẩn hóa symbols
+      const symbols = ALL_Symbol
+        .map(s => String(s).trim().toUpperCase())
+        .filter(Boolean);
 
-      // Chạy HOÀN TOÀN song song - không chia batch
+      // 2️⃣ Lấy TẤT CẢ price data 1 lần - 1 call (thay vì 272 calls!)
+      const priceDataMap = await Redis.getMultipleSymbolDetails(symbols);
+
+      // 3️⃣ Phân tích song song
       await Promise.all(
-        ALL_Symbol.map(async (symbol) => {
+        symbols.map(async (sym) => {
           try {
-            const sym = String(symbol).trim().toUpperCase();
-            if (!sym) return;
+            const symbolConfig = symbolConfigMap.get(sym);
+            const priceData = priceDataMap.get(sym);
 
-            // Lookup từ Map O(1) thay vì search O(n)
-            const symbolConfig = symbolConfigMap.get(sym) || getSymbolInfo(ConfigSymbol, sym);
-            
-            const priceData = await Redis.getSymbolDetails(sym);
             if (!priceData || priceData.length <= 1) return;
 
             await Analysis(priceData, sym, symbolConfig);
           } catch (err) {
-            // Lỗi 1 symbol không ảnh hưởng symbol khác
-            console.error(`[Analysis] Error ${symbol}:`, err.message);
+            console.error(`[Analysis] Error ${sym}:`, err.message);
           }
         })
       );
 
       const elapsed = Date.now() - startTime;
 
-      // Monitoring
       if (elapsed > TIMEOUT_WARN) {
         console.log(
           colors.red, `⚠️ JOB ANALYSIS`, colors.reset,
-          `SLOW: ${elapsed}ms (${ALL_Symbol.length} symbols) - Exceeded 1s limit!`
+          `SLOW: ${elapsed}ms (${symbols.length} symbols)`
         );
       } else {
         console.log(
           colors.green, `✓ JOB ANALYSIS`, colors.reset,
-          `${elapsed}ms (${ALL_Symbol.length} symbols)`
+          `${elapsed}ms (${symbols.length} symbols)`
         );
       }
     } catch (error) {
