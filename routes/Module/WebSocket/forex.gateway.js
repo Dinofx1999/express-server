@@ -207,8 +207,6 @@ function setupWebSocketServer(port) {
                     switch (data.Type) {    
 
                         case process.env.SYNC_PRICE:
-
-                        
                             const clientId = ws.id; // Sử dụng ID của client
                             try {
                                 const Symbol = data.data.symbol;
@@ -275,27 +273,24 @@ function setupWebSocketServer(port) {
                         case "SET_DATA":
                             try {
                                 const rawData = data.data;
-                                // console.log(formatString(data[1].Broker_Get));
-                                // if(Reset === true) {
-                                //     await Redis.updateBrokerStatus(formatString(data[1].Broker_Get), "Connected"); 
-                                //     Reset = false;
-                                // }
-                                
-                                // Validate data
                                 if (!rawData.broker || !rawData.index) {
                                     throw new Error('Invalid broker data structure');
                                 }
-                            
-                                // Thêm các trường mặc định
-                                // const processedData = {
-                                //     ...rawData,
-                                //     Infosymbol: rawData.OHLC_Symbols || [],
-                                //     TimeCurrent: rawData.timecurrent || new Date().toISOString(),
-                                // };
-
-                            //    const resul =  updateSymbolTradingTimes(processedData, info_symbol_config);
-                                
                                 const save = await Redis.saveBrokerData(formatString(rawData.broker) , rawData);
+                            } catch (error) {
+                                console.error('Error saving broker data:', error.message);
+                            }
+                            break;
+                        case "RESET_SYMBOL":
+                            try {
+                                const rawData = data.data;
+                                if (!rawData.symbol && !rawData.port) {
+                                    throw new Error('Invalid symbol data structure');
+                                }
+                                await Redis.publish(String(rawData.port), JSON.stringify({
+                                    Symbol: rawData.symbol,
+                                    Broker: "ALL-BROKERS",
+                                  }));
                             } catch (error) {
                                 console.error('Error saving broker data:', error.message);
                             }
