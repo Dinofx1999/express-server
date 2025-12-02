@@ -27,6 +27,8 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             if( CURRENT.typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
 
+        if(symbol === "BTCUSD" && CURRENT.Broker === "FXBIG")console.log(`Session: ${SESSION} |Spread_Min: ${SPREAD_MIN_CURRENT} | Spread_X: ${SPREAD_X_CURRENT}`);
+
         //Check BUY
         let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT * SPREAD_X_CURRENT);
         let Point_BUY = Spread_Sync * (Digit(parseInt(CHECK.digit)));
