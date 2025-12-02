@@ -123,7 +123,7 @@ let index = 1;
 
          await Redis.publish("RESET_ALL", JSON.stringify({
           Symbol: "ALL-BROKERS",
-          Broker: allBrokers[index-1].broker,
+          Broker: allBrokers[index-1].broker_,
         }));
         console.log(`✅ Continue Reset: ${allBrokers[index-1].broker_}`);
       }
