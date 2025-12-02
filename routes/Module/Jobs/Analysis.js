@@ -8,7 +8,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
 
  async function Analysis(data, symbol ,symbolConfig_data) {
     try {
-        console.log(`\n--- Analysis for ${symbol} at ${getTimeGMT7()} ---`);
+        // console.log(`\n--- Analysis for ${symbol} at ${getTimeGMT7()} ---`);
     let total_length = data.length;
     for(let i = 1; i < total_length; i++){
         const CHECK = data[0];
