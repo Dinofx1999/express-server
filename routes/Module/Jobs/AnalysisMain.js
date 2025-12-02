@@ -3,6 +3,7 @@ const Redis = require('../Redis/clientRedis');
 const { Analysis } = require('../Jobs/Analysis');
 const { connectMongoDB } = require('../../Database/mongodb');
 const { getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
+const { colors } = require('../Helpers/Log');
 let ConfigSymbol = [];
 
 async function startJob() {
@@ -38,6 +39,7 @@ async function startJob() {
         const symbolConfig = await getSymbolInfo(ConfigSymbol, sym);
         const priceData = await Redis.getSymbolDetails(sym);
         if (priceData.length <= 1 || sym === undefined) continue;
+        console.log(colors.green ,`JOB ANALYSIS`,colors.reset, `Analyzing symbol: ${sym}`);
         await Analysis(priceData, sym, symbolConfig);
       }
     } catch (error) {
