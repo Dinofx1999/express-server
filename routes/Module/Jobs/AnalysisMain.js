@@ -39,9 +39,10 @@ async function startJob() {
         const symbolConfig = await getSymbolInfo(ConfigSymbol, sym);
         const priceData = await Redis.getSymbolDetails(sym);
         if (priceData.length <= 1 || sym === undefined) continue;
-        console.log(colors.green ,`JOB ANALYSIS`,colors.reset, `Analyzing symbol: ${sym}`);
         await Analysis(priceData, sym, symbolConfig);
       }
+
+      console.log(colors.green ,`JOB ANALYSIS`,colors.reset, `Analyzing Success`);
     } catch (error) {
       console.error(`[JOB ${process.pid}] Analysis error:`, error.message);
     }
