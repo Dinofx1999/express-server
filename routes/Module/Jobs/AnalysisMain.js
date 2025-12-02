@@ -11,6 +11,7 @@ let symbolConfigMap = new Map();
 async function startJob() {
   console.log(`[JOB ${process.pid}] Analysis booting...`);
 
+  // Kết nối MongoDB
   try {
     await connectMongoDB();
     console.log(`[JOB ${process.pid}] MongoDB connected.`);
@@ -19,6 +20,7 @@ async function startJob() {
     return;
   }
 
+  // Load config lần đầu
   try {
     await refreshConfig();
     console.log(`[JOB ${process.pid}] Loaded ${ConfigSymbol.length} symbol configs.`);
@@ -26,12 +28,14 @@ async function startJob() {
     console.error(`[JOB ${process.pid}] Failed to load configs:`, error.message);
   }
 
+  // Bắt đầu các loops
   runAnalysisLoop();
   runConfigRefreshLoop();
 
   console.log(`[JOB ${process.pid}] Analysis ready.`);
 }
 
+// Cache config vào Map để lookup O(1)
 async function refreshConfig() {
   ConfigSymbol = await getAllSymbolConfigs();
   symbolConfigMap.clear();
@@ -41,6 +45,7 @@ async function refreshConfig() {
   }
 }
 
+// Loop chính để phân tích
 function runAnalysisLoop() {
   const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 500);
   const TIMEOUT_WARN = 1000;
@@ -49,25 +54,27 @@ function runAnalysisLoop() {
     const startTime = Date.now();
 
     try {
-      // 1️⃣ Lấy danh sách symbols - 1 call
+      // 1️⃣ Lấy danh sách symbols
       const ALL_Symbol = await Redis.getAllUniqueSymbols();
-      
+
       // Chuẩn hóa symbols
       const symbols = ALL_Symbol
         .map(s => String(s).trim().toUpperCase())
         .filter(Boolean);
 
-      // 2️⃣ Lấy TẤT CẢ price data 1 lần - 1 call (thay vì 272 calls!)
+      // 2️⃣ Lấy TẤT CẢ price data 1 lần (thay vì 272 calls!)
       const priceDataMap = await Redis.getMultipleSymbolDetails(symbols);
-      console.log(priceDataMap);
+
       // 3️⃣ Phân tích song song
       await Promise.all(
         symbols.map(async (sym) => {
           try {
-            const symbolConfig = symbolConfigMap.get(sym);
+            // Lookup từ Map O(1)
+            const symbolConfig = symbolConfigMap.get(sym) || getSymbolInfo(ConfigSymbol, sym);
             const priceData = priceDataMap.get(sym);
 
             if (!priceData || priceData.length <= 1) return;
+
             await Analysis(priceData, sym, symbolConfig);
           } catch (err) {
             console.error(`[Analysis] Error ${sym}:`, err.message);
@@ -77,6 +84,7 @@ function runAnalysisLoop() {
 
       const elapsed = Date.now() - startTime;
 
+      // Monitoring
       if (elapsed > TIMEOUT_WARN) {
         console.log(
           colors.red, `⚠️ JOB ANALYSIS`, colors.reset,
@@ -92,6 +100,7 @@ function runAnalysisLoop() {
       console.error(`[JOB ${process.pid}] Analysis error:`, error.message);
     }
 
+    // Tính thời gian còn lại và schedule tick tiếp theo
     const elapsed = Date.now() - startTime;
     const nextDelay = Math.max(0, interval - elapsed);
     setTimeout(tick, nextDelay);
@@ -100,6 +109,7 @@ function runAnalysisLoop() {
   tick();
 }
 
+// Loop refresh config
 function runConfigRefreshLoop() {
   const refreshInterval = Number(process.env.CONFIG_REFRESH_INTERVAL || 10000);
 

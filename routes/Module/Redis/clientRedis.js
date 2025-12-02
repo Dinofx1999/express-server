@@ -260,26 +260,75 @@ class RedisManager {
     }
 
     // Lấy nhiều symbols cùng 1 lúc - chỉ 1 network call
-    async getMultipleSymbolDetails(symbols) {
+    // Lấy details của nhiều symbols cùng lúc - CHỈ 1 LẦN query brokers
+async getMultipleSymbolDetails(symbols) {
     if (!symbols || symbols.length === 0) return new Map();
 
-    const pipeline = this.client.pipeline();
+    try {
+        // 1️⃣ Lấy tất cả brokers 1 LẦN DUY NHẤT
+        const brokerKeys = await this.client.keys('BROKER:*');
+        if (brokerKeys.length === 0) return new Map();
 
-    for (const sym of symbols) {
-        // Thay bằng command bạn đang dùng trong getSymbolDetails
-        pipeline.lrange(`symbol:${sym}`, 0, -1); // hoặc hget, get, etc.
+        const pipeline = this.client.pipeline();
+        brokerKeys.forEach((key) => pipeline.get(key));
+        const results = await pipeline.exec();
+
+        // 2️⃣ Parse tất cả brokers
+        const brokers = [];
+        for (const [err, data] of results) {
+            if (!err && data) {
+                try {
+                    brokers.push(JSON.parse(data));
+                } catch (e) {
+                    // Skip invalid JSON
+                }
+            }
+        }
+
+        // 3️⃣ Build Map cho tất cả symbols cùng lúc
+        const symbolSet = new Set(symbols);
+        const resultMap = new Map();
+
+        // Khởi tạo Map với empty arrays
+        for (const sym of symbols) {
+            resultMap.set(sym, []);
+        }
+
+        // Duyệt qua brokers và tìm symbols
+        for (const broker of brokers) {
+            if (!broker.OHLC_Symbols || !Array.isArray(broker.OHLC_Symbols)) continue;
+            if (broker.status !== "True") continue;
+
+            for (const symbolInfo of broker.OHLC_Symbols) {
+                const sym = symbolInfo.symbol;
+                
+                // Chỉ xử lý symbols trong danh sách cần tìm
+                if (!symbolSet.has(sym)) continue;
+                if (symbolInfo.trade !== "TRUE") continue;
+
+                const details = {
+                    Broker: broker.broker,
+                    Broker_: broker.broker_,
+                    Status: broker.status,
+                    Index: broker.index,
+                    ...symbolInfo,
+                };
+
+                resultMap.get(sym).push(details);
+            }
+        }
+
+        // 4️⃣ Sort mỗi symbol theo Index
+        for (const [sym, details] of resultMap) {
+            details.sort((a, b) => parseFloat(a.Index || 0) - parseFloat(b.Index || 0));
+        }
+
+        return resultMap;
+    } catch (error) {
+        console.error('Error in getMultipleSymbolDetails:', error);
+        return new Map();
     }
-
-    const results = await pipeline.exec();
-
-    const map = new Map();
-    symbols.forEach((sym, idx) => {
-        const [err, data] = results[idx] || [];
-        map.set(sym, err ? [] : data);
-    });
-
-    return map;
-    }
+}
     async findBrokerByIndex(index) {
         try {
             if (!index && index !== 0) {
