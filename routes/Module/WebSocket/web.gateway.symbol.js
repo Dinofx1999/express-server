@@ -88,7 +88,8 @@ function setupWebSocketServer(port) {
         wss.clients.forEach(async function each(ws) {
             //Lấy giá của 1 Symbol của tất cả Broker
             
-            const data = await Redis.getMultipleSymbolDetails([ws.symbol]);
+            const data = await Redis.getMultipleSymbolDetails([String(ws.symbol)]);
+            console.log(data);
             ws.send(JSON.stringify({time: getTimeGMT7() , data: data }));
         });
     }, 100);
