@@ -90,10 +90,10 @@ function runAnalysisLoop() {
           `SLOW: ${elapsed}ms (${symbols.length} symbols)`
         );
       } else {
-        console.log(
-          colors.green, `✓ JOB ANALYSIS`, colors.reset,
-          `${elapsed}ms (${symbols.length} symbols)`
-        );
+        // console.log(
+        //   colors.green, `✓ JOB ANALYSIS`, colors.reset,
+        //   `${elapsed}ms (${symbols.length} symbols)`
+        // );
       }
     } catch (error) {
       console.error(`[JOB ${process.pid}] Analysis error:`, error.message);
