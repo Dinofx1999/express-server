@@ -288,7 +288,7 @@ function setupWebSocketServer(port) {
                                     throw new Error('Invalid symbol data structure');
                                 }
                                 console.log(Color_Log_Success, `Received RESET_SYMBOL for ${rawData.symbol} on port ${rawData.port}`);
-                                await Redis.publish(String(rawData.port), JSON.stringify({
+                                await Redis.publish("RESET_ALL", JSON.stringify({
                                     Symbol: rawData.symbol,
                                     Broker: "ALL-BROKERS",
                                   }));
