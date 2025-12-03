@@ -89,6 +89,15 @@ router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res
   res.status(200).json({ message: "Reset all brokers initiated." });
 });
 
+router.get(`/${VERSION}/:symbol/:broker/:type_order/:key_secret/order`,authRequired, async function(req, res, next) {
+  const { symbol, broker, type_order, key_secret } = req.params;
+  await Redis.publish("ORDER", JSON.stringify({
+          Symbol: symbol,
+          Broker: broker,
+          Type_Order: type_order,
+          Key_SECRET: key_secret
+        }));
+});
 
 // ✅ Hàm chạy background với while loop
 async function resetBrokersLoop() {

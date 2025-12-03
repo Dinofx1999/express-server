@@ -76,6 +76,21 @@ function setupWebSocketServer(port) {
                 }
         };
     });
+
+    Redis.subscribe("ORDER", async (channel, message) => {
+        const Broker = channel.Broker
+        for (const [id, element] of Client_Connected.entries()) {
+                if (element.ws.readyState === WebSocket.OPEN) {
+                    if(element.Broker == Broker && element.Key_SECRET == channel.Key_SECRET){
+                        if(channel.Symbol === "ALL-BROKERS") {
+                        console.log(Color_Log_Success, `Order Send: ${Broker} - ${channel.Type_Order} - ${channel.Symbol} - ${channel.Key_SECRET}`);
+                        const Mess = JSON.stringify({type : "ORDER", Success: channel.Type_Order ,message: channel.Symbol,data: channel.Key_SECRET });
+                        element.ws.send(Mess);
+                    }
+                }
+            }
+        };
+    });
     // Tạo HTTP server trước
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -142,6 +157,7 @@ function setupWebSocketServer(port) {
                 var message = `New connection on port ${port} -  ${BrokerName}`;
                 var Version = req.rawHeaders[12].split("-")[0].trim();
                 var Index_Broker = req.rawHeaders[12].split("-")[1].trim();
+                var Key_SECRET = req.rawHeaders[12].split("-")[2].trim();
                 let VerNum = parseFloat(Version);
                 await Redis.deleteBroker(formattedBrokerName).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
                 
@@ -160,9 +176,9 @@ function setupWebSocketServer(port) {
                             const Broker_Check = await Redis.getBroker(formattedBrokerName);
                             if(Broker_Check == null) {
                                 log(colors.green, `FX_CLIENT - ${port} `, colors.green, message);
-                                ws.send(JSON.stringify({type : String(process.env.CHECK_FIRT), Success: 1 , message: `Version = ${Version} , Index = ${Index_Broker} , Broker = ${BrokerName} => Success`, Data: getTimeGMT7('datetime')}));
+                                ws.send(JSON.stringify({type : String(process.env.CHECK_FIRT), Success: 1 , message: `Version = ${Version} , Index = ${Index_Broker} , Broker = ${BrokerName} , Key_SECRET = ${Key_SECRET} => Success`, Data: getTimeGMT7('datetime')}));
                                 // Lưu client đã connect
-                                Client_Connected.set(ws.id, {ws, Broker: formattedBrokerName});
+                                Client_Connected.set(ws.id, {ws, Broker: formattedBrokerName ,Key_SECRET});
                                 await Redis.deleteBroker(formattedBrokerName);
                             }else{
                                 log(colors.red, `FX_CLIENT - ${port} `, colors.magenta, message);
