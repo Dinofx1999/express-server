@@ -365,7 +365,7 @@ function setupWebSocketServer(port) {
             ws.on('close', async function close() {
                 const client = Client_Connected.get(ws.id);
                 if (client) {
-                    log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Client disconnected:", client.Broker);
+                    log(colors.red, `FX_CLIENT - ${port} `, colors.reset, `Client disconnected: ${client.Broker}`);
                     
                     await Redis.deleteBroker(client.Broker).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
                     Client_Connected.delete(ws.id);
