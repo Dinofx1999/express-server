@@ -89,14 +89,19 @@ router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res
   res.status(200).json({ message: "Reset all brokers initiated." });
 });
 
-router.get(`/${VERSION}/:symbol/:broker/:type_order/:key_secret/order`,authRequired, async function(req, res, next) {
-  const { symbol, broker, type_order, key_secret } = req.params;
+router.get(`/${VERSION}/:symbol/:broker/:type_order/:price_bid/:key_secret/order`,authRequired, async function(req, res, next) {
+  const { symbol, broker, type_order, price_bid, key_secret } = req.params;
   await Redis.publish("ORDER", JSON.stringify({
           Symbol: symbol,
           Broker: broker,
           Type_Order: type_order,
+          Price_Bid: price_bid,
           Key_SECRET: key_secret
         }));
+  return  res.status(200).json({
+    'mess' : `Order Received for Broker: ${broker} , Symbol: ${symbol} , Type_Order: ${type_order}`,
+    'code' : 1
+  });
 });
 
 // ✅ Hàm chạy background với while loop
