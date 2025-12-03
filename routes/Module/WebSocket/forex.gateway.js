@@ -5,8 +5,6 @@ const { getTimeGMT7 } = require('../Helpers/time');
 
 // Import các modules hiện tại
 const Redis = require('../Redis/clientRedis');
-const RequestDeduplicator = require('../Redis/RequestDeduplicator');
-const deduplicator = new RequestDeduplicator(Redis.client);
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
 // const e = require('express');
@@ -290,21 +288,13 @@ function setupWebSocketServer(port) {
                                 if (!rawData.symbol && !rawData.port) {
                                     throw new Error('Invalid symbol data structure');
                                 }
-                                
-                                const symbol = rawData.symbol;
-                                const dedupKey = `RESET_SYMBOL:${symbol}`;
-                                
-                                // Chỉ cần gọi execute - tự động dedup
-                                await deduplicator.execute(dedupKey, async () => {
-                                    console.log(Color_Log_Success, `[RESET_SYMBOL] Publishing reset for ${symbol}`);
-                                    await Redis.publish("RESET_ALL", JSON.stringify({
-                                        Symbol: symbol,
-                                        Broker: "ALL-BROKERS-SYMBOL",
-                                    }));
-                                });
-                                
+                                console.log(Color_Log_Success, `Received RESET_SYMBOL for ${rawData.symbol} on port ${rawData.port}`);
+                                await Redis.publish("RESET_ALL", JSON.stringify({
+                                    Symbol: rawData.symbol,
+                                    Broker: "ALL-BROKERS-SYMBOL",
+                                  }));
                             } catch (error) {
-                                console.error('Error in RESET_SYMBOL:', error.message);
+                                console.error('Error saving broker data:', error.message);
                             }
                             break;
                             
