@@ -77,20 +77,20 @@ function setupWebSocketServer(port) {
         };
     });
 
-    Redis.subscribe("ORDER", async (channel, message) => {
-        const Broker = channel.Broker
-        for (const [id, element] of Client_Connected.entries()) {
-                if (element.ws.readyState === WebSocket.OPEN) {
-                    if(element.Broker == Broker && element.Key_SECRET == channel.Key_SECRET){
-                        if(channel.Symbol === "ALL-BROKERS") {
-                        console.log(Color_Log_Success, `Order Send: ${Broker} - ${channel.Type_Order} - ${channel.Symbol} - ${channel.Key_SECRET}`);
-                        const Mess = JSON.stringify({type : "ORDER", Success: channel.Type_Order ,message: channel.Symbol,data: channel.Key_SECRET });
-                        element.ws.send(Mess);
-                    }
-                }
-            }
-        };
-    });
+    // Redis.subscribe("ORDER", async (channel, message) => {
+    //     const Broker = channel.Broker
+    //     for (const [id, element] of Client_Connected.entries()) {
+    //             if (element.ws.readyState === WebSocket.OPEN) {
+    //                 if(element.Broker == Broker && element.Key_SECRET == channel.Key_SECRET){
+    //                     if(channel.Symbol === "ALL-BROKERS") {
+    //                     console.log(Color_Log_Success, `Order Send: ${Broker} - ${channel.Type_Order} - ${channel.Symbol} - ${channel.Key_SECRET}`);
+    //                     const Mess = JSON.stringify({type : "ORDER", Success: channel.Type_Order ,message: channel.Symbol,data: channel.Key_SECRET });
+    //                     element.ws.send(Mess);
+    //                 }
+    //             }
+    //         }
+    //     };
+    // });
     // Tạo HTTP server trước
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
