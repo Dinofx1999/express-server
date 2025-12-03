@@ -54,6 +54,10 @@ const ErrorAnalysisSchema = new mongoose.Schema({
         type: String,
         default: 'Delay Price',
     },
+    Delay: {
+        type: Number,
+        required: true,
+    }
 }, {
     timestamps: true,
 });

@@ -60,6 +60,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
                     Spread_Sync: Spread_Sync,
                     IsStable: false,
                     Type,
+                    Delay: CURRENT.timedelay,
             };
             // console.log(`=> Phát hiện Chậm Giá BUY: ${symbol} | Khoảng Cách: ${Payload.KhoangCach} | Time: ${timeStart}`);
             await Insert_UpdateAnalysisConfig(symbol,Payload);
@@ -89,6 +90,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
                     Spread_Sync: Spread_Sync,
                     IsStable: false,
                     Type,
+                    Delay: CURRENT.timedelay,
             };
             // console.log(`=> Phát hiện Chậm Giá BUY: ${symbol} | Khoảng Cách: ${Payload.KhoangCach} | Time: ${timeStart}`);
             await Insert_UpdateAnalysisConfig(symbol,Payload);

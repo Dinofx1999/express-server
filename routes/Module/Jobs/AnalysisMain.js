@@ -1,6 +1,7 @@
 const { getSymbolInfo } = require('../Jobs/Func.helper');
 const Redis = require('../Redis/clientRedis');
 const { Analysis } = require('../Jobs/Analysis');
+const { Analysis_Type2 } = require('../Jobs/Analysis_Type2');
 const { connectMongoDB } = require('../../Database/mongodb');
 const { getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
 const { colors } = require('../Helpers/Log');
@@ -74,7 +75,11 @@ function runAnalysisLoop() {
             const priceData = priceDataMap.get(sym);
 
             if (!priceData || priceData.length <= 1) return;
-            await Analysis(priceData, sym, symbolConfig);
+            if(process.env.ANALYSIS_TYPE === 'ANALYSIS_TYPE_1'){
+                await Analysis(priceData, sym, symbolConfig);
+            }else if(process.env.ANALYSIS_TYPE === 'ANALYSIS_TYPE_2'){
+                await Analysis_Type2(priceData, sym, symbolConfig);
+            }
           } catch (err) {
             console.error(`[Analysis] Error ${sym}:`, err.message);
           }
