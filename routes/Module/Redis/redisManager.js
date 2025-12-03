@@ -14,4 +14,6 @@ redisClient.on('error', (err) => {
     log(colors.red, 'REDIS', colors.reset, 'Redis connection error', err);
 });
 
+
+
 module.exports = redisClient;
