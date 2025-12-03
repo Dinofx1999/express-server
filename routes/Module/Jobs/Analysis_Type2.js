@@ -54,10 +54,10 @@ async function Analysis_Type2(data, symbol, symbolConfig_data) {
         // 3. CHỈ PHÂN TÍCH CÁC BROKER BỊ LỆCH
         // ═══════════════════════════════════════════════════════════
         for (const CURRENT of outlierGroup) {
-             if (Number(CURRENT.timedelay) < Number(process.env.MAX_NEGATIVE_DELAY) * 60 || (-30 * 60)) {
-        // console.log(`[SKIP] ${symbol} | ${CURRENT.Broker} delay quá lớn: ${CURRENT.timedelay}ms`);
-                    return;  // Bỏ qua, không phân tích
-                }
+        //      if (Number(CURRENT.timedelay) < Number(process.env.MAX_NEGATIVE_DELAY) * 60 || (-30 * 60)) {
+        // // console.log(`[SKIP] ${symbol} | ${CURRENT.Broker} delay quá lớn: ${CURRENT.timedelay}ms`);
+        //             return;  // Bỏ qua, không phân tích
+        //         }
             await analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit);
         }
 
