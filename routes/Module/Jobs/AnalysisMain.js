@@ -75,9 +75,9 @@ function runAnalysisLoop() {
             const priceData = priceDataMap.get(sym);
 
             if (!priceData || priceData.length <= 1) return;
-            if(process.env.ANALYSIS_TYPE === 'ANALYSIS_TYPE_1'){
+            if(String(process.env.ANALYSIS_TYPE) === 'ANALYSIS_TYPE_1'){
                 await Analysis(priceData, sym, symbolConfig);
-            }else if(process.env.ANALYSIS_TYPE === 'ANALYSIS_TYPE_2'){
+            }else if(String(process.env.ANALYSIS_TYPE) === 'ANALYSIS_TYPE_2'){
                 await Analysis_Type2(priceData, sym, symbolConfig);
             }
           } catch (err) {
