@@ -35,7 +35,6 @@ function setupWebSocketServer(port) {
         for (const [id, element] of Client_Connected.entries()) {
             if(element.Broker == Broker) {
                 if (element.ws.readyState === WebSocket.OPEN) {
-                    console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
                     if(channel.Symbol === "all") {
                         const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
                         element.ws.send(Mess);
@@ -55,10 +54,9 @@ function setupWebSocketServer(port) {
         const Broker = channel.Broker
         for (const [id, element] of Client_Connected.entries()) {
                 if (element.ws.readyState === WebSocket.OPEN) {
-                    console.log(Color_Log_Success, `Publish to Broker: ${Broker}`);
                     if(element.Broker == Broker){
                         if(channel.Symbol === "ALL-BROKERS") {
-                        
+                        console.log(Color_Log_Success, `Publish to Broker: ${Broker}`);
                         const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
                         element.ws.send(Mess);
                     }else{
@@ -68,6 +66,9 @@ function setupWebSocketServer(port) {
                     }
                     }else if(Broker === "ALL-BROKERS"){
                         const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
+                        element.ws.send(Mess);
+                    }else if(Broker === "ALL-BROKERS-SYMBOL"){
+                        const Mess = JSON.stringify({type : "Reset_Only_Auto", Success: 1 , message: channel.Symbol});
                         element.ws.send(Mess);
                     }
                 }
@@ -290,7 +291,7 @@ function setupWebSocketServer(port) {
                                 console.log(Color_Log_Success, `Received RESET_SYMBOL for ${rawData.symbol} on port ${rawData.port}`);
                                 await Redis.publish("RESET_ALL", JSON.stringify({
                                     Symbol: rawData.symbol,
-                                    Broker: "ALL-BROKERS",
+                                    Broker: "ALL-BROKERS-SYMBOL",
                                   }));
                             } catch (error) {
                                 console.error('Error saving broker data:', error.message);
