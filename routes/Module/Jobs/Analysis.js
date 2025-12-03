@@ -9,15 +9,20 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
  async function Analysis(data, symbol ,symbolConfig_data) {
     try {
 
-          if (Number(CURRENT.timedelay) < Number(process.env.MAX_NEGATIVE_DELAY) * 60 || (-30 * 60)) {
-        // console.log(`[SKIP] ${symbol} | ${CURRENT.Broker} delay quá lớn: ${CURRENT.timedelay}ms`);
-        return;  // Bỏ qua, không phân tích
-    }
+          
         // console.log(`\n--- Analysis for ${symbol} at ${getTimeGMT7()} ---`);
     let total_length = data.length;
     for(let i = 1; i < total_length; i++){
         const CHECK = data[0];
         const CURRENT = data[i];
+
+        if (Number(CURRENT.timedelay) < Number(process.env.MAX_NEGATIVE_DELAY) * 60 || (-30 * 60)) {
+        // console.log(`[SKIP] ${symbol} | ${CURRENT.Broker} delay quá lớn: ${CURRENT.timedelay}ms`);
+           return;  // Bỏ qua, không phân tích
+        }
+
+
+
         let SPREAD_MIN_CURRENT = Number(CURRENT.spread_mdf);
         let SPREAD_X_CURRENT = Number(process.env.SPREAD_X_CURRENT) || 1.5;
         let SESSION = getForexSession(getTimeGMT7());
