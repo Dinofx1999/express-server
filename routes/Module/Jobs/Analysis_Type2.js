@@ -137,9 +137,10 @@ function calculateMedian(arr) {
  */
 async function analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit) {
     
-
     
-    if(symbol === "XAUUSD" && CURRENT.Broker === "Vu Test") console.log(`Analyzing ${symbol} | ${CURRENT.Broker} | Delay: ${CURRENT.timedelay}ms`);
+    let Max_Delay = Number(process.env.MAX_NEGATIVE_DELAY) * 60; // Chuyển phút sang ms
+    
+    if(symbol === "XAUUSD" && CURRENT.Broker === "Vu Test") console.log(`Analyzing ${symbol} | ${CURRENT.Broker} | Delay: ${CURRENT.timedelay}ms | Max_Delay: ${Max_Delay}ms`);
 
     // Lấy config spread
     let SPREAD_MIN_CURRENT = Number(CURRENT.spread_mdf);
