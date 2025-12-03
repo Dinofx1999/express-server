@@ -313,12 +313,12 @@ function setupWebSocketServer(port) {
                         //         ws.send(JSON.stringify({type: "isConnect", Success: 1, message: "Connected", Data: ""}));
                         //     }
                         //     break;
-                        // case "ping":
-                        //     if (ws.readyState === WebSocket.OPEN) {
-                        //         // console.log(Color_Log_Success, "Ping from client:", data[1]);
-                        //         ws.send(JSON.stringify({type: "pong", Success: 1, message: data[1].TimeCurrent, Data: ""}));
-                        //     }
-                        //     break;
+                        case "ping":
+                            if (ws.readyState === WebSocket.OPEN) {
+                                // console.log(Color_Log_Success, "Ping from client:", data[1]);
+                                ws.send(JSON.stringify({type: "pong", Success: 1, message: "", Data: ""}));
+                            }
+                            break;
                             
                         default:
                             // No-op for unrecognized message types
