@@ -133,14 +133,13 @@ let index = 1;
       const Per_status = Number(Number(calculatePercentage(status)).toFixed(0));
       // // console.log(`🔄 Resetting broker:${index-1} : ${status} - ${Per_status}`);
       if(Per_status >= 30){
-       
+        index++;
         //  this.appService.resetBroker(allBrokers[index-1].broker_, "ALL");
 
          await Redis.publish("RESET_ALL", JSON.stringify({
           Symbol: "ALL-BROKERS",
           Broker: allBrokers[index-1].broker_,
         }));
-         index++;
         console.log(`✅ Continue Reset: ${allBrokers[index-1].broker_}`);
       }
       if(index === allBrokers.length){
