@@ -157,7 +157,7 @@ function setupWebSocketServer(port) {
                 var message = `New connection on port ${port} -  ${BrokerName}`;
                 var Version = req.rawHeaders[12].split("-")[0].trim();
                 var Index_Broker = req.rawHeaders[12].split("-")[1].trim();
-                var Key_SECRET = req.rawHeaders[12]?.split("-")[2].trim()||"";
+                var Key_SECRET = req.rawHeaders[12]?.split("-")[2].trim()||"No Key";
                 let VerNum = parseFloat(Version);
                 await Redis.deleteBroker(formattedBrokerName).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
                 
