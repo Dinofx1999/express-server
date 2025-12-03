@@ -17,7 +17,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         const CURRENT = data[i];
 
         if (Number(CURRENT.timedelay) < Number(process.env.MAX_NEGATIVE_DELAY) * 60 || (-30 * 60)) {
-        // console.log(`[SKIP] ${symbol} | ${CURRENT.Broker} delay quá lớn: ${CURRENT.timedelay}ms`);
+        console.log(`[SKIP] ${symbol} | ${CURRENT.Broker} delay quá lớn: ${CURRENT.timedelay}ms`);
            return;  // Bỏ qua, không phân tích
         }
 
