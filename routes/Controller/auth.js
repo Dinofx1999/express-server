@@ -4,6 +4,7 @@ const {userLogin} = require("../../models/index");
 const { validateSchema } = require('../../validations/validateSchema');
 const { loginSchema, registerSchema } = require('../../validations/schemas.yup');
 const {log , colors} = require('../Module/Helpers/Log');
+const crypto = require('crypto');
 
 //HTTP Basic Auth
 const passport = require('passport');
@@ -23,25 +24,36 @@ const {  API_ALL_INFO_BROKERS ,
           API_ANALYSIS_CONFIG , API_PRICE_SYMBOL ,
           API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL ,API_LOGIN,API_REGISTER } = require('../Module/Constants/API.Service');
 
+
+function generateSecretId(length = 10) {
+  return crypto.randomBytes(Math.ceil(length / 2))
+  .toString('hex')
+  .slice(0, length)
+  .toUpperCase();
+}
+
 router.post(API_REGISTER, validateSchema(registerSchema), async function (req, res, next) {
     try {
-      req.body.username = req.body.username.toLowerCase();
-      const newUser = new userLogin(req.body);
-      await newUser.save();
-      log(colors.green, 'REGISTER', colors.cyan, `Người dùng mới đã được đăng ký: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email}`);
-      return res.status(200).send({ success: true, message: "Đăng ký thành công" });
+        req.body.username = req.body.username.toLowerCase();
+        
+        // ═══ THÊM id_SECRET ═══
+        req.body.id_SECRET = generateSecretId(10);
+        
+        const newUser = new userLogin(req.body);
+        await newUser.save();
+        
+        log(colors.green, 'REGISTER', colors.cyan, `Người dùng mới đã được đăng ký: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email} , ID_SECRET: ${req.body.id_SECRET}`);
+        return res.status(200).send({ success: true, message: "Đăng ký thành công" });
     } catch (err) {
-      if (err.code === 11000) { 
-        // Kiểm tra trường bị trùng lặp
-        const duplicateField = Object.keys(err.keyPattern)[0];
-        log(colors.red, 'REGISTER', colors.yellow, `${duplicateField} đã tồn tại: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email}`);
-        return res.status(409).send({ ok: false, message: `${duplicateField} đã tồn tại` });
-
-      }
-      console.error("Lỗi:", err);
-      return res.status(500).send({ ok: false, message: "Đã xảy ra lỗi" });
+        if (err.code === 11000) { 
+            const duplicateField = Object.keys(err.keyPattern)[0];
+            log(colors.red, 'REGISTER', colors.yellow, `${duplicateField} đã tồn tại: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email}`);
+            return res.status(409).send({ ok: false, message: `${duplicateField} đã tồn tại` });
+        }
+        console.error("Lỗi:", err);
+        return res.status(500).send({ ok: false, message: "Đã xảy ra lỗi" });
     }
-  });
+});
 
 
   router.get('/basic', passport.authenticate('basic', { session: false }), function (req, res, next) {
@@ -92,7 +104,8 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
                     username: user.username,
                     email: user.email,
                     role: user.rule,
-                    fullname: user.name
+                    fullname: user.name,
+                    id_SECRET: user.id_SECRET
                   }
                 };
                 
