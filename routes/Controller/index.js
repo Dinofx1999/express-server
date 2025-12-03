@@ -112,7 +112,7 @@ if(allBrokers.length <= 1){
   return;
 }
 console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
-let index = 1;
+let index = 0;
   while (index < allBrokers.length && allBrokers.length > 1) {
     const allBrokers_ = await Redis.getAllBrokers();
     try {
