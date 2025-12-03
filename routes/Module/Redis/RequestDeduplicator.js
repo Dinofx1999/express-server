@@ -22,19 +22,19 @@ class RequestDeduplicator {
 
         if (acquired === 'OK') {
             // ═══ LEADER: Xử lý ═══
-            console.log(`\x1b[32m[DEDUP-LEADER]\x1b[0m ${key} - Processing...`);
+            // console.log(`\x1b[32m[DEDUP-LEADER]\x1b[0m ${key} - Processing...`);
             
             try {
                 await processor();
                 await this.redis.set(resultKey, 'done', 'PX', RESULT_TTL);
-                console.log(`\x1b[32m[DEDUP-LEADER]\x1b[0m ${key} - Done!`);
+                // console.log(`\x1b[32m[DEDUP-LEADER]\x1b[0m ${key} - Done!`);
             } catch (error) {
                 await this.redis.set(resultKey, 'error', 'PX', RESULT_TTL);
                 throw error;
             }
         } else {
             // ═══ WAITER: Đợi leader xong ═══
-            console.log(`\x1b[33m[DEDUP-WAITER]\x1b[0m ${key} - Skipped (already processing)`);
+            // console.log(`\x1b[33m[DEDUP-WAITER]\x1b[0m ${key} - Skipped (already processing)`);
             await this._waitForResult(resultKey);
         }
     }
