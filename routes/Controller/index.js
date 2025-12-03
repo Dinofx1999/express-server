@@ -112,7 +112,7 @@ if(allBrokers.length <= 1){
   return;
 }
 console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
-let index = 1;
+let index = 0;
   while (index < allBrokers.length && allBrokers.length > 1) {
     const allBrokers_ = await Redis.getAllBrokers();
     try {
@@ -120,12 +120,12 @@ let index = 1;
         console.log('❌ No brokers found');
         break;
       }
-      if(index === 1 ){
+      if(index === 0 ){
        
-         console.log(`✅ Continue Reset: ${allBrokers[index-1].broker}`);
+         console.log(`✅ Continue Reset: ${allBrokers[index].broker}`);
          await Redis.publish("RESET_ALL", JSON.stringify({
           Symbol: "ALL-BROKERS",
-          Broker: allBrokers[index-1].broker_,
+          Broker: allBrokers[index].broker_,
         }));
          index++;
       }
