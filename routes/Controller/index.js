@@ -112,7 +112,7 @@ if(allBrokers.length <= 1){
   return;
 }
 console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
-let index = 0;
+let index = 1;
   while (index < allBrokers.length && allBrokers.length > 1) {
     const allBrokers_ = await Redis.getAllBrokers();
     try {
@@ -121,24 +121,26 @@ let index = 0;
         break;
       }
       if(index === 1 ){
-        index++;
+       
          console.log(`✅ Continue Reset: ${allBrokers[index-1].broker}`);
          await Redis.publish("RESET_ALL", JSON.stringify({
           Symbol: "ALL-BROKERS",
           Broker: allBrokers[index-1].broker_,
         }));
+         index++;
       }
       const status = String(allBrokers_[index-1].status);
       const Per_status = Number(Number(calculatePercentage(status)).toFixed(0));
       // // console.log(`🔄 Resetting broker:${index-1} : ${status} - ${Per_status}`);
       if(Per_status >= 30){
-        index++;
+       
         //  this.appService.resetBroker(allBrokers[index-1].broker_, "ALL");
 
          await Redis.publish("RESET_ALL", JSON.stringify({
           Symbol: "ALL-BROKERS",
           Broker: allBrokers[index-1].broker_,
         }));
+         index++;
         console.log(`✅ Continue Reset: ${allBrokers[index-1].broker_}`);
       }
       if(index === allBrokers.length){
