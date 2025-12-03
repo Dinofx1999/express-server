@@ -129,7 +129,7 @@ let index = 1;
         }));
          index++;
       }
-      const status = String(allBrokers_[index-1].status);
+      const status = String(allBrokers_[index].status);
       const Per_status = Number(Number(calculatePercentage(status)).toFixed(0));
       // // console.log(`🔄 Resetting broker:${index-1} : ${status} - ${Per_status}`);
       if(Per_status >= 30){
