@@ -6,6 +6,7 @@ const { getTimeGMT7 } = require('../Helpers/time');
 // Import các modules hiện tại
 const Redis = require('../Redis/clientRedis');
 const RequestDeduplicator = require('../Redis/RequestDeduplicator');
+const DebounceQueue  = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
@@ -29,6 +30,9 @@ const {formatString , normSym} = require('../Helpers/text.format');
 // let WS_Broker;
 
 // Hàm này sẽ tạo một WebSocket Server ở port được truyền vào
+const debounceQueue = new DebounceQueue({ 
+    debounceTime: 2000  // 2 giây
+});
 
 function setupWebSocketServer(port) {
     SaveAll_Info();
@@ -309,17 +313,21 @@ function setupWebSocketServer(port) {
                                     throw new Error('Invalid symbol data structure');
                                 }
                                 
-                                const symbol = rawData.symbol;
-                                const dedupKey = `RESET_SYMBOL:${symbol}`;
-                                
-                                // Chỉ cần gọi execute - tự động dedup
-                                await deduplicator.execute(dedupKey, async () => {
-                                    // console.log(Color_Log_Success, `[RESET_SYMBOL] Publishing reset for ${symbol}`);
-                                    // await Redis.publish("RESET_ALL", JSON.stringify({
-                                    //     Symbol: symbol,
-                                    //     Broker: "ALL-BROKERS-SYMBOL",
-                                    // }));
-                                });
+                                 const symbol = rawData.symbol;
+                                    const dedupKey = `RESET:${symbol}`;
+
+                                    debounceQueue.receive(dedupKey, rawData, async (data, meta) => {
+                                        // Callback này chạy SAU 3s debounce VÀ đợi queue
+                                        console.log(`Processing ${meta.key} after ${meta.count} messages`);
+                                        
+                                        await Redis.publish("RESET_ALL", JSON.stringify({
+                                            Symbol: symbol,
+                                            Broker: "ALL-BROKERS-SYMBOL",
+                                        }));
+                                        
+                                        // Simulate processing time
+                                        await new Promise(r => setTimeout(r, 2000));
+                                    });
                                 
                             } catch (error) {
                                 console.error('Error in RESET_SYMBOL:', error.message);
