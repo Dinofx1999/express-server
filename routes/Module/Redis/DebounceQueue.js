@@ -1,17 +1,19 @@
 /**
- * SymbolDebounceQueue - Final Version
+ * SymbolDebounceQueue - Final Version với Cooldown
  * 
  * Logic:
  * - Track duplicate bằng FULL PAYLOAD (Symbol + Broker)
  * - Duplicate payload → ignore, không reset timer
  * - New payload → accept, reset timer
  * - Process → Mỗi Symbol chỉ xử lý 1 LẦN (dedupe by symbol)
+ * - Cooldown → Payload đã xử lý sẽ bị ignore trong N giây
  */
 
 const DEBOUNCE_TIME = 3000;       // 3s không có payload mới
 const MAX_WAIT_TIME = 15000;      // Tối đa 15s
 const MAX_PAYLOADS = 500;         // Tối đa 500 unique payloads
 const DELAY_BETWEEN_TASKS = 60;   // 60ms delay giữa các task
+const COOLDOWN_TIME = 10000;      // 10s cooldown sau khi xử lý
 
 class SymbolDebounceQueue {
     constructor(options = {}) {
@@ -19,6 +21,7 @@ class SymbolDebounceQueue {
         this.maxWaitTime = options.maxWaitTime || MAX_WAIT_TIME;
         this.maxPayloads = options.maxPayloads || MAX_PAYLOADS;
         this.delayBetweenTasks = options.delayBetweenTasks || DELAY_BETWEEN_TASKS;
+        this.cooldownTime = options.cooldownTime || COOLDOWN_TIME;
         
         // Tracking per group key
         this.timers = new Map();           // groupKey -> debounce timeoutId
@@ -28,6 +31,11 @@ class SymbolDebounceQueue {
         this.processors = new Map();       // groupKey -> processor function
         this.receivedCounts = new Map();   // groupKey -> total messages received
         
+        // Cooldown cache - Track payload đã xử lý gần đây
+        this.processedCache = new Map();   // hash -> expireTime
+        this.cleanupInterval = null;
+        this._startCleanup();
+        
         // Queue
         this.queue = [];
         this.isProcessing = false;
@@ -35,11 +43,44 @@ class SymbolDebounceQueue {
     }
 
     /**
+     * Start cleanup interval cho processedCache
+     */
+    _startCleanup() {
+        this.cleanupInterval = setInterval(() => {
+            const now = Date.now();
+            for (const [hash, expireTime] of this.processedCache) {
+                if (now >= expireTime) {
+                    this.processedCache.delete(hash);
+                }
+            }
+        }, 5000);
+    }
+
+    /**
+     * Check if payload is in cooldown
+     */
+    _isInCooldown(hash) {
+        const expireTime = this.processedCache.get(hash);
+        if (!expireTime) return false;
+        
+        if (Date.now() >= expireTime) {
+            this.processedCache.delete(hash);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Add payload to cooldown cache
+     */
+    _addToCooldown(hash) {
+        this.processedCache.set(hash, Date.now() + this.cooldownTime);
+    }
+
+    /**
      * Tạo hash từ payload để check duplicate
-     * Hash = Symbol + Broker (hoặc các field quan trọng)
      */
     _createHash(payload) {
-        // Chỉ hash các field quan trọng để xác định duplicate
         const keyFields = {
             symbol: payload.symbol || payload.Symbol || '',
             broker: payload.broker || payload.Broker || ''
@@ -65,6 +106,19 @@ class SymbolDebounceQueue {
         const hash = this._createHash(payload);
         const symbol = this._extractSymbol(payload);
         
+        // ══════════════════════════════════════════════
+        // CHECK 1: Payload đang trong COOLDOWN → IGNORE
+        // ══════════════════════════════════════════════
+        if (this._isInCooldown(hash)) {
+            // console.log(`[DEBOUNCE] ${groupKey} - In cooldown: ${hash}`);
+            return { 
+                status: 'cooldown', 
+                hash,
+                symbol,
+                message: 'Recently processed, in cooldown'
+            };
+        }
+        
         // Init maps nếu chưa có
         if (!this.uniquePayloads.has(groupKey)) {
             this.uniquePayloads.set(groupKey, new Map());
@@ -80,10 +134,10 @@ class SymbolDebounceQueue {
         const payloadsMap = this.uniquePayloads.get(groupKey);
         
         // ══════════════════════════════════════════════
-        // CHECK: Duplicate payload (same Symbol + Broker) → IGNORE
+        // CHECK 2: Duplicate payload trong pending → IGNORE
         // ══════════════════════════════════════════════
         if (payloadsMap.has(hash)) {
-            // console.log(`[DEBOUNCE] ${groupKey} - Duplicate payload (#${receivedCount}):`, hash);
+            // console.log(`[DEBOUNCE] ${groupKey} - Duplicate pending (#${receivedCount}): ${hash}`);
             return { 
                 status: 'duplicate', 
                 hash,
@@ -198,9 +252,16 @@ class SymbolDebounceQueue {
         const uniquePayloadCount = allPayloads.length;
 
         // ══════════════════════════════════════════════
+        // ADD TẤT CẢ PAYLOADS VÀO COOLDOWN TRƯỚC KHI XÓA
+        // ══════════════════════════════════════════════
+        for (const payload of allPayloads) {
+            this._addToCooldown(payload._hash);
+        }
+
+        // ══════════════════════════════════════════════
         // DEDUPE theo Symbol - Mỗi symbol chỉ xử lý 1 lần
         // ══════════════════════════════════════════════
-        const symbolMap = new Map(); // symbol -> { symbol, brokers: [...], payloads: [...] }
+        const symbolMap = new Map();
         
         for (const payload of allPayloads) {
             const symbol = payload.symbol;
@@ -244,9 +305,9 @@ class SymbolDebounceQueue {
                 this.queue.push({ 
                     groupKey,
                     symbol,
-                    brokers: data.brokers,           // Danh sách brokers đã gửi
-                    payloads: data.payloads,         // Tất cả payloads của symbol này
-                    firstPayload: data.firstPayload, // Payload đầu tiên
+                    brokers: data.brokers,
+                    payloads: data.payloads,
+                    firstPayload: data.firstPayload,
                     processor,
                     totalWaitTime,
                     receivedCount,
@@ -291,9 +352,9 @@ class SymbolDebounceQueue {
             await processor(symbol, { 
                 groupKey,
                 symbol,
-                brokers,                  // ['ABC', '123', 'XYZ'] - tất cả brokers đã gửi symbol này
-                payloads,                 // Tất cả payloads của symbol này
-                firstPayload,             // Payload đầu tiên
+                brokers,
+                payloads,
+                firstPayload,
                 brokerCount: brokers.length,
                 totalWaitTime,
                 queueRemaining: this.queue.length
@@ -365,6 +426,23 @@ class SymbolDebounceQueue {
     }
 
     /**
+     * Check if hash is in cooldown
+     */
+    isInCooldown(hash) {
+        return this._isInCooldown(hash);
+    }
+
+    /**
+     * Get cooldown remaining time for a hash
+     */
+    getCooldownRemaining(hash) {
+        const expireTime = this.processedCache.get(hash);
+        if (!expireTime) return 0;
+        const remaining = expireTime - Date.now();
+        return remaining > 0 ? remaining : 0;
+    }
+
+    /**
      * Get status
      */
     getStatus() {
@@ -400,7 +478,8 @@ class SymbolDebounceQueue {
                 debounceTime: this.debounceTime,
                 maxWaitTime: this.maxWaitTime,
                 maxPayloads: this.maxPayloads,
-                delayBetweenTasks: this.delayBetweenTasks
+                delayBetweenTasks: this.delayBetweenTasks,
+                cooldownTime: this.cooldownTime
             },
             isProcessing: this.isProcessing,
             currentTask: this.currentTask ? {
@@ -414,6 +493,7 @@ class SymbolDebounceQueue {
                 symbol: item.symbol,
                 brokerCount: item.brokers.length
             })),
+            cooldownCount: this.processedCache.size,
             pendingDebounce: pending
         };
     }
@@ -456,6 +536,31 @@ class SymbolDebounceQueue {
     }
 
     /**
+     * Clear cooldown for a specific hash
+     */
+    clearCooldown(hash) {
+        return this.processedCache.delete(hash);
+    }
+
+    /**
+     * Clear cooldown for a payload
+     */
+    clearCooldownPayload(payload) {
+        const hash = this._createHash(payload);
+        return this.processedCache.delete(hash);
+    }
+
+    /**
+     * Clear all cooldowns
+     */
+    clearAllCooldowns() {
+        const count = this.processedCache.size;
+        this.processedCache.clear();
+        console.log(`[COOLDOWN] Cleared ${count} cooldown entries`);
+        return count;
+    }
+
+    /**
      * Clear queue
      */
     clearQueue() {
@@ -469,6 +574,12 @@ class SymbolDebounceQueue {
      * Destroy
      */
     destroy() {
+        // Clear cleanup interval
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+        }
+        
         for (const timeoutId of this.timers.values()) {
             clearTimeout(timeoutId);
         }
@@ -482,6 +593,7 @@ class SymbolDebounceQueue {
         this.uniquePayloads.clear();
         this.processors.clear();
         this.receivedCounts.clear();
+        this.processedCache.clear();
         this.queue = [];
         this.isProcessing = false;
         this.currentTask = null;
