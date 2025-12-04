@@ -315,10 +315,10 @@ function setupWebSocketServer(port) {
                                 // Chỉ cần gọi execute - tự động dedup
                                 await deduplicator.execute(dedupKey, async () => {
                                     // console.log(Color_Log_Success, `[RESET_SYMBOL] Publishing reset for ${symbol}`);
-                                    await Redis.publish("RESET_ALL", JSON.stringify({
-                                        Symbol: symbol,
-                                        Broker: "ALL-BROKERS-SYMBOL",
-                                    }));
+                                    // await Redis.publish("RESET_ALL", JSON.stringify({
+                                    //     Symbol: symbol,
+                                    //     Broker: "ALL-BROKERS-SYMBOL",
+                                    // }));
                                 });
                                 
                             } catch (error) {
