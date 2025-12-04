@@ -6,7 +6,7 @@ const { getTimeGMT7 } = require('../Helpers/time');
 // Import các modules hiện tại
 const Redis = require('../Redis/clientRedis');
 const RequestDeduplicator = require('../Redis/RequestDeduplicator');
-const DebounceQueue  = require('../Redis/DebounceQueue');
+const UniqueDebounceQueue   = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
@@ -30,8 +30,10 @@ const {formatString , normSym} = require('../Helpers/text.format');
 // let WS_Broker;
 
 // Hàm này sẽ tạo một WebSocket Server ở port được truyền vào
-const debounceQueue = new DebounceQueue({ 
-    debounceTime: 2000  // 2 giây
+const debounceQueue = new UniqueDebounceQueue({ 
+    debounceTime: 3000,   // 3s không có payload mới
+    maxWaitTime: 15000,   // Tối đa 15s
+    maxPayloads: 500      // Tối đa 500 unique payloads
 });
 
 function setupWebSocketServer(port) {
@@ -313,22 +315,30 @@ function setupWebSocketServer(port) {
                                     throw new Error('Invalid symbol data structure');
                                 }
                                 
-                                 const symbol = rawData.symbol;
-                                    const dedupKey = `RESET:${symbol}`;
+                                    const symbol = rawData.mess || rawData.symbol;
+                                    const broker = rawData.Broker || "ALL-BROKERS-SYMBOL";
+                                    
+                                    // Group key - có thể group theo symbol hoặc global "RESET"
+                                    const groupKey = `RESET:${symbol}`;  // Hoặc chỉ "RESET" nếu muốn gộp tất cả
+                                    
+                                    // Payload để track unique
+                                    const payload = { symbol, broker };
 
-                                    debounceQueue.receive(dedupKey, rawData, async (data, meta) => {
-                                        // Callback này chạy SAU 3s debounce VÀ đợi queue
-                                        console.log(`Processing ${meta.key} after ${meta.count} messages`);
+                                    const result = debounceQueue.receive(groupKey, payload, async (payloads, meta) => {
+                                        // payloads = Array of unique payloads
+                                        console.log(`\n🚀 Processing ${meta.key}:`);
+                                        console.log(`   - ${meta.uniqueCount} unique brokers`);
+                                        console.log(`   - Waited: ${meta.totalWaitTime}ms`);
+                                        console.log(`   - Payloads:`, payloads);
                                         
-                                        await Redis.publish("RESET_ALL", JSON.stringify({
-                                            Symbol: symbol,
-                                            Broker: "ALL-BROKERS-SYMBOL",
-                                        }));
-                                        
-                                        // Simulate processing time
-                                        await new Promise(r => setTimeout(r, 2000));
+                                        // Xử lý từng payload hoặc batch
+                                        for (const p of payloads) {
+                                            await Redis.publish("RESET_ALL", JSON.stringify({
+                                                Symbol: p.symbol,
+                                                Broker: p.broker,
+                                            }));
+                                        }
                                     });
-                                
                             } catch (error) {
                                 console.error('Error in RESET_SYMBOL:', error.message);
                             }
