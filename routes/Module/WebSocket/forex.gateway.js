@@ -316,7 +316,7 @@ function setupWebSocketServer(port) {
                                 }
                                 
                                     const symbol = rawData.mess || rawData.symbol;
-                                    const broker = rawData.Broker || "ALL-BROKERS-SYMBOL";
+                                    const broker = BrokerName || "ALL-BROKERS-SYMBOL";
                                     
                                     // Group key - có thể group theo symbol hoặc global "RESET"
                                     const groupKey = `RESET:${symbol}`;  // Hoặc chỉ "RESET" nếu muốn gộp tất cả
