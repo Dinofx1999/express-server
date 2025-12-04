@@ -6,7 +6,7 @@ const { getTimeGMT7 } = require('../Helpers/time');
 // Import các modules hiện tại
 const Redis = require('../Redis/clientRedis');
 const RequestDeduplicator = require('../Redis/RequestDeduplicator');
-const UniqueDebounceQueue   = require('../Redis/DebounceQueue');
+const  SymbolDebounceQueue   = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
