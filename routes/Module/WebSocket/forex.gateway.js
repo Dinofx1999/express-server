@@ -30,10 +30,11 @@ const {formatString , normSym} = require('../Helpers/text.format');
 // let WS_Broker;
 
 // Hàm này sẽ tạo một WebSocket Server ở port được truyền vào
-const debounceQueue = new UniqueDebounceQueue({ 
-    debounceTime: 3000,   // 3s không có payload mới
-    maxWaitTime: 15000,   // Tối đa 15s
-    maxPayloads: 500      // Tối đa 500 unique payloads
+const queue = new SymbolDebounceQueue({ 
+    debounceTime: 3000,       // 3s không có symbol mới
+    maxWaitTime: 15000,       // Tối đa 15s
+    maxSymbols: 500,          // Tối đa 500 symbols
+    delayBetweenTasks: 60     // 60ms delay giữa các task
 });
 
 function setupWebSocketServer(port) {
@@ -318,26 +319,21 @@ function setupWebSocketServer(port) {
                                     const symbol = rawData.mess || rawData.symbol;
                                     const broker = BrokerName || "ALL-BROKERS-SYMBOL";
                                     
-                                    // Group key - có thể group theo symbol hoặc global "RESET"
-                                    const groupKey = `RESET:${symbol}`;  // Hoặc chỉ "RESET" nếu muốn gộp tất cả
-                                    
-                                    // Payload để track unique
-                                    const payload = { symbol, broker };
+                                     const groupKey = 'RESET';
+    
+                                    const payload = {
+                                        symbol,
+                                        broker
+                                    };
 
-                                    const result = debounceQueue.receive(groupKey, payload, async (payloads, meta) => {
-                                        // payloads = Array of unique payloads
-                                        console.log(`\n🚀 Processing ${meta.key}:`);
-                                        console.log(`   - ${meta.uniqueCount} unique brokers`);
-                                        console.log(`   - Waited: ${meta.totalWaitTime}ms`);
-                                        console.log(`   - Payloads:`, payloads);
+                                    const result = queue.receive(groupKey, payload, async (symbol, meta) => {
+                                        console.log(`🚀 Processing: ${symbol}`);
+                                        console.log(`   Brokers đã gửi: ${meta.brokers.join(', ')}`);
                                         
-                                        // Xử lý từng payload hoặc batch
-                                        for (const p of payloads) {
-                                            await Redis.publish("RESET_ALL", JSON.stringify({
-                                                Symbol: p.symbol,
-                                                Broker: p.broker,
-                                            }));
-                                        }
+                                        await Redis.publish("RESET_ALL", JSON.stringify({
+                                            Symbol: symbol,
+                                            Broker: "ALL-BROKERS-SYMBOL",
+                                        }));
                                     });
                             } catch (error) {
                                 console.error('Error in RESET_SYMBOL:', error.message);
