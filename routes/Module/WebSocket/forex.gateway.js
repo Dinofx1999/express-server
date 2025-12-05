@@ -326,8 +326,8 @@ function setupWebSocketServer(port) {
                                         symbol,
                                         broker
                                     };
-
-                                    const result = queue.receive(groupKey, payload, async (symbol, meta) => {
+                                    if(symbol == "GBPUSD"){
+                                          const result = queue.receive(groupKey, payload, async (symbol, meta) => {
                                         console.log(`🚀 Processing: ${symbol}`);
                                         console.log(`   Brokers đã gửi: ${meta.brokers.join(', ')}`);
                                         
@@ -336,6 +336,9 @@ function setupWebSocketServer(port) {
                                             Broker: "ALL-BROKERS-SYMBOL",
                                         }));
                                     });
+                                    }
+
+                                  
                             } catch (error) {
                                 console.error('Error in RESET_SYMBOL:', error.message);
                             }
