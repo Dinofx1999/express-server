@@ -323,7 +323,7 @@ function setupWebSocketServer(port) {
                             }
                             break;
                        
-                        case "SET_DATA":s
+                        case "SET_DATA":
                             try {
                                 const rawData = data.data;
                                 if (!rawData.broker || !rawData.index) {
