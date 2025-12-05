@@ -326,7 +326,7 @@ function setupWebSocketServer(port) {
                                         symbol,
                                         broker
                                     };
-                                    if(symbol == "GBPUSD"){
+                                    if(symbol == "XAUUSD"   || symbol == "XAGUSD" ){
                                           const result = queue.receive(groupKey, payload, async (symbol, meta) => {
                                         console.log(`🚀 Processing: ${symbol}`);
                                         console.log(`   Brokers đã gửi: ${meta.brokers.join(', ')}`);
