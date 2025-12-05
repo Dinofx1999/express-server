@@ -33,9 +33,9 @@ const {formatString , normSym} = require('../Helpers/text.format');
 const queue = new SymbolDebounceQueue({ 
     debounceTime: 3000,       // 3s không có payload mới
     maxWaitTime: 15000,       // Tối đa 15s
-    maxPayloads: 500,         // Tối đa 500 unique payloads
-    delayBetweenTasks: 60,    // 60ms delay giữa các task
-    cooldownTime: 5000       // 5s cooldown sau khi xử lý
+    maxPayloads: 15000,         // Tối đa 15000 unique payloads
+    delayBetweenTasks: 100,    // 100ms delay giữa các task
+    cooldownTime: 20000       // 20s cooldown sau khi xử lý
 });
 
 function setupWebSocketServer(port) {
@@ -304,6 +304,8 @@ function setupWebSocketServer(port) {
                                     throw new Error('Invalid broker data structure');
                                 }
                                 const save = await Redis.saveBrokerData(formatString(rawData.broker) , rawData);
+                                const Mess = JSON.stringify({type : "SET_DATA", Success: 1 , message: ""});
+                                ws.send(Mess);
                             } catch (error) {
                                 console.error('Error saving broker data:', error.message);
                             }
