@@ -104,6 +104,24 @@ router.get(`/${VERSION}/:symbol/:broker/:type_order/:price_bid/:key_secret/order
   });
 });
 
+router.get(`/${VERSION}/:symbol/:broker/test_reset`,authRequired, async function(req, res, next) {
+  const { broker , symbol} = req.params;
+  const Broker_Check = await Redis.getBroker(broker);
+  const PORT = Broker_Check?.port || null;
+  await Redis.publish(String(PORT), JSON.stringify({
+    Symbol: symbol,
+    Broker: broker,
+    Type : "Test_price"
+  }));
+  res.status(200).json({ message: "Reset all brokers initiated." });
+});
+router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, next) {
+  await Redis.publish("RESET_ALL", JSON.stringify({
+    Type : "Test_Time_Open",
+  }));
+  res.status(200).json({ message: "Reset all brokers initiated." });
+});
+
 // ✅ Hàm chạy background với while loop
 async function resetBrokersLoop() {
 const allBrokers = await Redis.getAllBrokers();

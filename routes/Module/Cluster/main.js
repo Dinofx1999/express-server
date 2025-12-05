@@ -14,6 +14,7 @@ require('dotenv').config({ quiet: true });
 //JOBs
 const JOB_Analysis = require('../Jobs/AnalysisMain');
 const JOB_Cron_DatAnalyses_MongoDB = require('../Jobs/Cron.Mongo.Analyses');
+const JOB_ScanTimeOpen = require('../Jobs/ScanTimeOpen');
 
 // Cấu hình màu log
 const Color_Log_Master = "\x1b[36m%s\x1b[0m";
@@ -93,6 +94,7 @@ async function MainStream() {
             cluster.fork({ WORKER_TYPE: 'WS_ANALYSIS', PORT: process.env.WS_PORT_ANALYSIS || 2003 });
             cluster.fork({ WORKER_TYPE: 'JOBS', PORT: process.env.WS_PORT_ANALYSIS_JOB || 4000 });
             cluster.fork({ WORKER_TYPE: 'JOBS_CRON_MONGO', PORT: process.env.WS_PORT_CRON_MONGO || 4001 });
+            cluster.fork({ WORKER_TYPE: 'JOBS_CRON_ScanTimeOpen', PORT: process.env.WS_PORT_CRON_SCAN_TIME_OPEN || 4002 });
 
             cluster.on('exit', (worker, code, signal) => {
                 log(colors.red, 'WORKER', colors.reset, `Worker ${worker.id} died with code ${code} and signal ${signal}`);
@@ -156,6 +158,14 @@ async function MainStream() {
                         await JOB_Cron_DatAnalyses_MongoDB();
                     } catch (err) {
                         console.error('JOB_Cron_DatAnalyses_MongoDB Error:', err);
+                    }
+                    break;
+                case 'JOBS_CRON_ScanTimeOpen':
+                    log(colors.green, 'WORKER', colors.reset, `Starting JOB CRON SCAN TIME OPEN PID: ${process.pid}`);
+                    try {
+                        await JOB_ScanTimeOpen();
+                    } catch (err) {
+                        console.error('JOB_ScanTimeOpen Error:', err);
                     }
                     break;
                 default:

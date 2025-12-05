@@ -8,6 +8,7 @@ const Redis = require('../Redis/clientRedis');
 const RequestDeduplicator = require('../Redis/RequestDeduplicator');
 const  SymbolDebounceQueue   = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
+const { startTradeQueue, addTradeJob } = require('../Queue/trade.queue');
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
 // const e = require('express');
@@ -25,24 +26,37 @@ const Client_Connected = new Map();
 
 const {log , colors} = require('../Helpers/Log');
 const {formatString , normSym} = require('../Helpers/text.format');
+const { console } = require('inspector');
+const { stringify } = require('querystring');
 // let brokersActived = [];
 // let info_symbol_config = [];
 // let WS_Broker;
 
 // Hàm này sẽ tạo một WebSocket Server ở port được truyền vào
 const queue = new SymbolDebounceQueue({ 
-    debounceTime: 5000,       // 5s không có payload mới
-    maxWaitTime: 15000,       // Tối đa 15s
-    maxPayloads: 15000,         // Tối đa 15000 unique payloads
-    delayBetweenTasks: 1000,    // 100ms delay giữa các task
-    cooldownTime: 20000       // 20s cooldown sau khi xử lý
+    debounceTime: 3000,       // 3s không có payload mới
+    maxWaitTime: 10000,       // Tối đa 10s
+    maxPayloads: 5000,         // Tối đa 5000 unique payloads
+    delayBetweenTasks: 100,    // 100ms delay giữa các task
+    cooldownTime: 5000       // 5s cooldown after processing
 });
 
 function setupWebSocketServer(port) {
     SaveAll_Info();
+     startTradeQueue();
     Redis.subscribe(String(port), async (channel, message) => {
         const Broker = channel.Broker
-        for (const [id, element] of Client_Connected.entries()) {
+        if(channel.Type==="Test_price"){
+            for (const [id, element] of Client_Connected.entries()) {
+            if(element.Broker == Broker) {
+                if (element.ws.readyState === WebSocket.OPEN) {
+                    const Mess = JSON.stringify({type : "Test_price", Success: 1 , message: channel.Symbol});
+                    element.ws.send(Mess);
+                }
+            }
+        } 
+    }else{
+            for (const [id, element] of Client_Connected.entries()) {
             if(element.Broker == Broker) {
                 if (element.ws.readyState === WebSocket.OPEN) {
                     if(channel.Symbol === "all") {
@@ -58,10 +72,21 @@ function setupWebSocketServer(port) {
                 }
             }
         };
+        }
+        
     });
 
     Redis.subscribe("RESET_ALL", async (channel, message) => {
         const Broker = channel.Broker
+         if(channel.Type==="Test_Time_Open"){
+            console.log(Color_Log_Success, "Received Test_Time_Open message");
+            for (const [id, element] of Client_Connected.entries()) {
+                if (element.ws.readyState === WebSocket.OPEN) {
+                    const Mess = JSON.stringify({type : "Test_Time_Open", Success: 1});
+                    element.ws.send(Mess);
+                }
+        }
+    }else{
         for (const [id, element] of Client_Connected.entries()) {
                 if (element.ws.readyState === WebSocket.OPEN) {
                     if(element.Broker == Broker){
@@ -83,6 +108,8 @@ function setupWebSocketServer(port) {
                     }
                 }
         };
+    }
+        
     });
 
     Redis.subscribe("ORDER", async (channel, message) => {
@@ -216,9 +243,7 @@ function setupWebSocketServer(port) {
             // Xử lý khi có message từ client
             ws.on('message', async function incoming(message) {
                 
-                let Check_Index = 0;
-                let Reset = false;
-                
+                console.log(message);
                 try {
                     const data = JSON.parse(message)[0];
                     
@@ -231,8 +256,9 @@ function setupWebSocketServer(port) {
                     // if(data[1].Broker !== undefined || data[1].Broker !== null || data[1].Broker !== "") {
                     // console.log(Color_Log_Success, "Message from client:", data[1].Broker);
                     // }
-                    switch (data.Type) {    
+                    
 
+                    switch (data.Type) {    
                         case process.env.SYNC_PRICE:
                             const clientId = ws.id; // Sử dụng ID của client
                             try {
@@ -297,7 +323,7 @@ function setupWebSocketServer(port) {
                             }
                             break;
                        
-                        case "SET_DATA":
+                        case "SET_DATA":s
                             try {
                                 const rawData = data.data;
                                 if (!rawData.broker || !rawData.index) {
@@ -310,45 +336,69 @@ function setupWebSocketServer(port) {
                                 console.error('Error saving broker data:', error.message);
                             }
                             break;
-                        case "RESET_SYMBOL":
+                        case "ORDER_SEND":
                             try {
-                                const rawData = data.data;
-                                if (!rawData.symbol && !rawData.port) {
-                                    throw new Error('Invalid symbol data structure');
-                                }
-                                
-                                    const symbol = rawData.mess || rawData.symbol;
-                                    const broker = BrokerName || "ALL-BROKERS-SYMBOL";
-                                    
-                                     const groupKey = 'RESET';
-    
-                                    const payload = {
-                                        symbol,
-                                        broker
-                                    };
-                                    if(broker !== "Scope" && symbol !== "XAUUSD"  || symbol !== "OEXN"){
-                                          const result = queue.receive(groupKey, payload, async (symbol, meta) => {
-                                        console.log(`🚀 Processing: ${symbol}`);
-                                        console.log(`   Brokers đã gửi: ${meta.brokers.join(', ')}`);
-                                        
-                                        await Redis.publish("RESET_ALL", JSON.stringify({
-                                            Symbol: symbol,
-                                            Broker: "ALL-BROKERS-SYMBOL",
-                                        }));
-                                    });
-                                    }
+                                const orderData = data?.data || {};
 
-                                  
-                            } catch (error) {
-                                console.error('Error in RESET_SYMBOL:', error.message);
-                            }
+                                // Chuẩn hoá cờ success (phòng trường hợp "True", true, "TRUE", ...)
+                                const isSuccess = String(orderData.succes).toLowerCase() === "true";
+
+                                // Build trade base 1 lần
+                                const trade = {
+                                    Broker: String(orderData.broker || "").toUpperCase(),      // BROKER NAME
+                                    Type: String(orderData.cmd || "").toUpperCase(),           // BUY / SELL
+                                    Symbol: String(orderData.symbol || "").toUpperCase(),      // GBPUSD
+                                    Ticket: Number(orderData.ticket || 0),
+                                    OpenPrice: Number(orderData.open_price || 0),
+                                    TimeOpen: String(orderData.time_open || ""),               // "2025.12.06 12:23:00"
+                                    Volume: Number(orderData.volume || 0),
+                                    PriceSend: Number(orderData.price_order || 0),
+                                    Comment: orderData.comment ? String(orderData.comment) : "",
+                                    Spread: orderData.spread ? String(orderData.spread) : "",
+                                    // Có thể thêm Status cho dễ lọc bên Queue/Telegram
+                                    Status: isSuccess ? "SUCCESS" : "FAILED",
+                                };
+                                if(trade.Type==="BUY" && isSuccess){
+                                    mes = `BUY Thành Công ✅`;
+                                    price_check = Number(trade.OpenPrice) + (Number(orderData.spread_digit) || 0);
+                                    if(price_check > Number(trade.PriceSend)){
+                                        mes = `BUY trượt giá ❌`;
+                                    }
+                                }else if(trade.Type==="SELL" && isSuccess){
+                                    mes = `SELL Thành Công ✅`;
+                                    price_check = Number(trade.OpenPrice) - (Number(orderData.spread_digit) || 0);
+                                    if(price_check < Number(trade.PriceSend)){
+                                        mes = `SELL trượt giá ❌`;
+                                    }
+                                }else{
+                                    mes = `Fail`;
+                                }
+                                trade.Message = mes;
+
+                                if (isSuccess) {
+                                    addTradeJob(trade);
+                                    log(
+                                    colors.green,
+                                    "ORDER",
+                                    colors.reset,
+                                    `${trade.Broker} ${trade.Type} ${trade.Symbol} SUCCESS -> Ticket: ${trade.Ticket} ${orderData.spread_digit}`
+                                    );
+                                } else {
+                                    addTradeJob(trade);
+                                    log(
+                                    colors.red,
+                                    "ORDER FAIL",
+                                    colors.reset,
+                                    `Broker: ${orderData.broker} ${orderData.cmd} ${orderData.symbol} - Message: ${orderData.comment}`
+                                    );
+                                }
+
+                                } catch (error) {
+                                // Nếu muốn vẫn push vào queue khi parse/lỗi bất ngờ:
+                                // Có thể bọc thêm tradeFallback nếu cần
+                                console.error("Error in ORDER handler:", error.message);
+                                }
                             break;
-                            
-                        // case "isConnect":
-                        //     if (ws.readyState === WebSocket.OPEN) {
-                        //         ws.send(JSON.stringify({type: "isConnect", Success: 1, message: "Connected", Data: ""}));
-                        //     }
-                        //     break;
                         case "ping":
                             if (ws.readyState === WebSocket.OPEN) {
                                 // console.log(Color_Log_Success, "Ping from client:", data[1]);
