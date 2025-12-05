@@ -360,13 +360,13 @@ function setupWebSocketServer(port) {
                                 };
                                 if(trade.Type==="BUY" && isSuccess){
                                     mes = `BUY Thành Công ✅`;
-                                    price_check = Number(trade.OpenPrice) + (Number(orderData.spread_digit) || 0);
+                                    price_check = Number(trade.OpenPrice) - (Number(orderData.spread_digit) || 0);
                                     if(price_check > Number(trade.PriceSend)){
                                         mes = `BUY trượt giá ❌`;
                                     }
                                 }else if(trade.Type==="SELL" && isSuccess){
                                     mes = `SELL Thành Công ✅`;
-                                    price_check = Number(trade.OpenPrice) - (Number(orderData.spread_digit) || 0);
+                                    price_check = Number(trade.OpenPrice) + (Number(orderData.spread_digit) || 0);
                                     if(price_check < Number(trade.PriceSend)){
                                         mes = `SELL trượt giá ❌`;
                                     }
