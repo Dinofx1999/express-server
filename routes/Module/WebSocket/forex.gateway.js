@@ -31,10 +31,10 @@ const {formatString , normSym} = require('../Helpers/text.format');
 
 // Hàm này sẽ tạo một WebSocket Server ở port được truyền vào
 const queue = new SymbolDebounceQueue({ 
-    debounceTime: 3000,       // 3s không có payload mới
+    debounceTime: 5000,       // 5s không có payload mới
     maxWaitTime: 15000,       // Tối đa 15s
     maxPayloads: 15000,         // Tối đa 15000 unique payloads
-    delayBetweenTasks: 100,    // 100ms delay giữa các task
+    delayBetweenTasks: 500,    // 100ms delay giữa các task
     cooldownTime: 20000       // 20s cooldown sau khi xử lý
 });
 
