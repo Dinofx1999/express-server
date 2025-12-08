@@ -26,29 +26,6 @@ const { console } = require('inspector');
 
 function setupWebSocketServer(port) {
 
-    Redis.subscribe(String(port), async (channel, message) => {
-        const Broker = channel.Broker
-        for (const [id, element] of Client_Connected.entries()) {
-            if(element.Broker == Broker) {
-                if (element.ws.readyState === WebSocket.OPEN) {
-                    console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
-                    if(channel.Symbol === "all") {
-                        const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
-                        console.log(element);
-                        element.ws.send(Mess);
-                    }else if(channel.type === "destroy_broker"){
-                        const Mess = JSON.stringify({type : "Destroy_Broker", Success: 1 , message: channel.Symbol});
-                        element.ws.send(Mess);
-                        console.log(Mess);
-                    }else{
-                        const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
-                        element.ws.send(Mess);
-                        console.log(Mess);
-                    }
-                }
-            }
-        };
-    });
     // Tạo HTTP server trước
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -114,9 +91,6 @@ function setupWebSocketServer(port) {
                 const client = Client_Connected.get(ws.id);
                 if (client) {
                     log(colors.red, `WEB BROKERS - ${port}`, colors.reset   , "Client disconnected:", client.Broker);
-                    
-                    Redis.deleteBroker(client.Broker).catch(err => log(colors.red, `WEB BROKERS - ${port}`, colors.reset, "Error deleting broker:", err));
-                    Client_Connected.delete(ws.id);
                 }
             });
         });
