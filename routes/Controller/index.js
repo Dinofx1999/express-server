@@ -282,7 +282,7 @@ async function resetBrokersLoop() {
           let lastPercentage = 0;
 
           while (true) {
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Poll mỗi 2s
+            await new Promise(resolve => setTimeout(resolve, 200)); // Poll mỗi 2s
 
             const elapsed = Date.now() - startTime;
             
