@@ -82,113 +82,25 @@ router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next)
     'code' : 0
   });
 });
-// router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res, next) {
-//   if (isResetting) {
-//     return res.status(409).json({
-//       success: false,
-//       message: 'Reset is already in progress',
-//       progress: resetProgress
-//     });
-//   }
-
-//   res.json({ 
-//     success: true, 
-//     message: 'Reset process started in background' 
-//   });
-
-//   resetBrokersLoop().catch(err => {
-//     console.error('❌ resetBrokersLoop failed:', err);
-//   });
-// });
-
-router.get(`/${VERSION}/reset-all-brokers`, authRequired, async function(req, res, next) {
-  try {
-    // ✅ CHECK nếu đang reset rồi
-    const isResetting = await Redis.isResetting();
-    
-    if (isResetting) {
-      const status = await Redis.getResetStatus();
-      return res.json({ 
-        success: false, 
-        message: 'Reset is already in progress',
-        status: status
-      });
-    }
-    
-    // Lấy danh sách brokers
-    const allBrokers = await Redis.getAllBrokers();
-    
-    if (allBrokers.length === 0) {
-      return res.json({ success: false, message: 'No brokers to reset' });
-    }
-    
-    // ✅ BẮT ĐẦU tracking (tạo lock)
-    await Redis.startResetTracking(allBrokers);
-    
-    // Response ngay
-    res.json({ 
-      success: true, 
-      message: `Started resetting ${allBrokers.length} brokers`,
-      totalBrokers: allBrokers.length
+router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res, next) {
+  if (isResetting) {
+    return res.status(409).json({
+      success: false,
+      message: 'Reset is already in progress',
+      progress: resetProgress
     });
-    
-    // Chạy background
-    setImmediate(async () => {
-      try {
-        for (let i = 0; i < allBrokers.length; i++) {
-          const broker = allBrokers[i];
-          
-          console.log(`\n[${i + 1}/${allBrokers.length}] Processing: ${broker.broker_}`);
-          
-          // Update current index
-          await updateCurrentIndex(i);
-          
-          await Redis.publish("RESET_ALL", JSON.stringify({
-            Symbol: "ALL-BROKERS",
-            Broker: broker.broker_
-          }));
-          
-          const maxWait = 120000;
-          const start = Date.now();
-          
-          while (Date.now() - start < maxWait) {
-            await new Promise(r => setTimeout(r, 1000));
-            
-            const completed = await Redis.isResetCompleted(broker.broker_);
-            if (completed) {
-              console.log(`✅ [${i + 1}/${allBrokers.length}] ${broker.broker_} completed!`);
-              break;
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error in reset loop:', error);
-      } finally {
-        // ✅ XÓA lock khi xong
-        await Redis.clearResetTracking();
-        console.log('✅ All brokers reset completed!');
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error starting reset:', error);
-    res.status(500).json({ success: false, message: error.message });
   }
+
+  res.json({ 
+    success: true, 
+    message: 'Reset process started in background' 
+  });
+
+  resetBrokersLoop().catch(err => {
+    console.error('❌ resetBrokersLoop failed:', err);
+  });
 });
 
-// Helper function to update current index
-async function updateCurrentIndex(index) {
-  try {
-    const data = await Redis.client.get('reset_progress');
-    if (data) {
-      const progress = JSON.parse(data);
-      progress.currentIndex = index;
-      await Redis.client.setex('reset_progress', 3600, JSON.stringify(progress));
-    }
-  } catch (error) {
-    console.error('Error updating index:', error);
-  }
-}
 
 // API để check progress
 router.get('/v1/api/reset-status', (req, res) => {
@@ -366,15 +278,18 @@ async function resetBrokersLoop() {
             Broker: broker.broker_,
           }));
 
-          const maxWaitTime = 120000; // Tăng lên 120 giây
+          const maxWaitTime = 120000; // 120 giây
           const startTime = Date.now();
           let lastPercentage = 0;
+          let zeroCheckCount = 0; // ✅ Đếm số lần check = 0%
+          const maxZeroChecks = 5; // ✅ Số lần check = 0% trước khi retry
 
           while (true) {
-            await new Promise(resolve => setTimeout(resolve, 200)); // Poll mỗi 2s
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Poll mỗi 1s
 
             const elapsed = Date.now() - startTime;
             
+            // ✅ Timeout check
             if (elapsed > maxWaitTime) {
               console.log(`⏱️ [${index + 1}/${allBrokers.length}] Timeout for ${broker.broker_} at ${lastPercentage}%`);
               break;
@@ -385,24 +300,38 @@ async function resetBrokersLoop() {
 
             if (!currentBroker) {
               console.log(`⚠️ Broker ${broker.broker_} not found in list!`);
-              console.log(`📋 Available brokers: ${updatedBrokers.map(b => b.broker_).join(', ')}`);
               break;
             }
 
             if (!currentBroker.status) {
               console.log(`⚠️ Broker ${broker.broker_} has no status field!`);
-              console.log(`📋 Broker data: ${JSON.stringify(currentBroker)}`);
               break;
             }
 
             const percentage = Number(Number(calculatePercentage(String(currentBroker.status))).toFixed(0));
+            
+            // ✅ CHECK: Nếu = 0% liên tiếp
+            if (percentage === 0) {
+              zeroCheckCount++;
+              console.log(`⚠️ [${index + 1}/${allBrokers.length}] ${broker.broker_}: 0% (check ${zeroCheckCount}/${maxZeroChecks})`);
+              
+              if (zeroCheckCount >= maxZeroChecks) {
+                console.log(`🔁 [${index + 1}/${allBrokers.length}] ${broker.broker_}: Still 0% after ${maxZeroChecks} checks, will retry...`);
+                break; // Thoát loop để retry
+              }
+            } else {
+              // Reset counter nếu percentage > 0
+              zeroCheckCount = 0;
+            }
+            
             lastPercentage = percentage;
 
             // Log mỗi 10 giây
-            if (elapsed % 10000 < 2000) {
+            if (elapsed % 10000 < 1000) {
               console.log(`⏳ [${index + 1}/${allBrokers.length}] ${broker.broker_}: ${percentage}% (${Math.round(elapsed/1000)}s)`);
             }
 
+            // ✅ SUCCESS: Đạt 30%
             if (percentage >= 30) {
               console.log(`✅ [${index + 1}/${allBrokers.length}] ${broker.broker_} reached ${percentage}%`);
               success = true;
@@ -413,7 +342,7 @@ async function resetBrokersLoop() {
           if (!success) {
             retryCount++;
             if (retryCount < maxRetries) {
-              console.log(`🔁 Retrying ${broker.broker_}...`);
+              console.log(`🔁 [${index + 1}/${allBrokers.length}] Retrying ${broker.broker_} (${retryCount}/${maxRetries})...`);
               await new Promise(resolve => setTimeout(resolve, 5000)); // Đợi 5s trước khi retry
             }
           }
@@ -421,7 +350,9 @@ async function resetBrokersLoop() {
         } catch (error) {
           console.error(`❌ Error processing ${broker.broker_}:`, error.message);
           retryCount++;
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          if (retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
         }
       }
 
