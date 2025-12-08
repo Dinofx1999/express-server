@@ -409,6 +409,7 @@ class RedisManager {
                         Broker_: broker.broker_,
                         Status: broker.status,
                         Index: broker.index,
+                        Auto_Trade: broker.auto_trade,
                         Typeaccount: broker.typeaccount,
                         ...symbolInfo,
                     };

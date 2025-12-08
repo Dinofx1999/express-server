@@ -63,7 +63,6 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
     'code' : 0
   });
 });
-
 router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next) {
   const { broker} = req.params;
   const Broker_Check = await Redis.getBroker(broker);
@@ -83,12 +82,10 @@ router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next)
     'code' : 0
   });
 });
-
 router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res, next) {
   resetBrokersLoop();
   res.status(200).json({ message: "Reset all brokers initiated." });
 });
-
 router.get(`/${VERSION}/:symbol/:broker/:type_order/:price_bid/:key_secret/order`,authRequired, async function(req, res, next) {
   const { symbol, broker, type_order, price_bid, key_secret } = req.params;
   await Redis.publish("ORDER", JSON.stringify({
@@ -103,7 +100,6 @@ router.get(`/${VERSION}/:symbol/:broker/:type_order/:price_bid/:key_secret/order
     'code' : 1
   });
 });
-
 router.get(`/${VERSION}/:symbol/:broker/test_reset`,authRequired, async function(req, res, next) {
   const { broker , symbol} = req.params;
   const Broker_Check = await Redis.getBroker(broker);
@@ -120,6 +116,12 @@ router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, n
     Type : "Test_Time_Open",
   }));
   res.status(200).json({ message: "Reset all brokers initiated." });
+});
+router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, res, next) {
+    const deleteResult = await Redis.clearAllAppData();
+    return res.status(200).json({
+      deleteResult
+    });
 });
 
 // ✅ Hàm chạy background với while loop
