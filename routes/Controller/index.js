@@ -83,11 +83,29 @@ router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next)
   });
 });
 router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res, next) {
-   res.json({ message: 'Reset process started in background' });
-  
-  // Chạy background (không await)
+  if (isResetting) {
+    return res.status(409).json({
+      success: false,
+      message: 'Reset is already in progress',
+      progress: resetProgress
+    });
+  }
+
+  res.json({ 
+    success: true, 
+    message: 'Reset process started in background' 
+  });
+
   resetBrokersLoop().catch(err => {
     console.error('❌ resetBrokersLoop failed:', err);
+  });
+});
+
+// API để check progress
+app.get('/v1/api/reset-status', (req, res) => {
+  res.json({
+    isRunning: isResetting,
+    progress: resetProgress
   });
 });
 router.get(`/${VERSION}/:symbol/:broker/:type_order/:price_bid/:key_secret/order`,authRequired, async function(req, res, next) {
@@ -214,62 +232,86 @@ router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, r
 //   console.log('✅ Completed resetting all brokers');
 // }
 
+// Biến global để track trạng thái
+let isResetting = false;
+let resetProgress = { current: 0, total: 0, currentBroker: null };
+
 async function resetBrokersLoop() {
+  // Check nếu đang chạy thì reject
+  if (isResetting) {
+    return { 
+      success: false, 
+      message: 'Reset is already in progress',
+      progress: resetProgress 
+    };
+  }
+
   const allBrokers = await Redis.getAllBrokers();
   if (allBrokers.length <= 1) {
     console.log('❌ No brokers to reset');
-    return;
+    return { success: false, message: 'No brokers to reset' };
   }
+
+  // Set lock
+  isResetting = true;
+  resetProgress = { current: 0, total: allBrokers.length, currentBroker: null };
 
   console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
 
-  for (let index = 0; index < allBrokers.length; index++) {
-    const broker = allBrokers[index];
-
-    try {
-      await Redis.publish("RESET_ALL", JSON.stringify({
-        Symbol: "ALL-BROKERS",
-        Broker: broker.broker_,
-      }));
-      console.log(`✅ [${index + 1}/${allBrokers.length}] Reset started: ${broker.broker_}`);
-
-      // Đợi broker đạt 30% với TIMEOUT
-      const maxWaitTime = 60000; // 60 giây tối đa cho mỗi broker
-      const startTime = Date.now();
+  try {
+    for (let index = 0; index < allBrokers.length; index++) {
+      const broker = allBrokers[index];
       
-      while (true) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Update progress
+      resetProgress.current = index + 1;
+      resetProgress.currentBroker = broker.broker_;
 
-        // Check timeout
-        if (Date.now() - startTime > maxWaitTime) {
-          console.log(`⏱️ [${index + 1}/${allBrokers.length}] Timeout for ${broker.broker_}, moving to next...`);
-          break;
+      try {
+        await Redis.publish("RESET_ALL", JSON.stringify({
+          Symbol: "ALL-BROKERS",
+          Broker: broker.broker_,
+        }));
+        console.log(`✅ [${index + 1}/${allBrokers.length}] Reset started: ${broker.broker_}`);
+
+        const maxWaitTime = 60000;
+        const startTime = Date.now();
+
+        while (true) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          if (Date.now() - startTime > maxWaitTime) {
+            console.log(`⏱️ [${index + 1}/${allBrokers.length}] Timeout for ${broker.broker_}`);
+            break;
+          }
+
+          const updatedBrokers = await Redis.getAllBrokers();
+          const currentBroker = updatedBrokers.find(b => b.broker_ === broker.broker_);
+
+          if (!currentBroker || !currentBroker.status) {
+            console.log(`⚠️ Broker ${broker.broker_} not found, skipping...`);
+            break;
+          }
+
+          const percentage = Number(Number(calculatePercentage(String(currentBroker.status))).toFixed(0));
+
+          if (percentage >= 30) {
+            console.log(`✅ [${index + 1}/${allBrokers.length}] ${broker.broker_} reached ${percentage}%`);
+            break;
+          }
         }
-
-        const updatedBrokers = await Redis.getAllBrokers();
-        const currentBroker = updatedBrokers.find(b => b.broker_ === broker.broker_);
-
-        if (!currentBroker || !currentBroker.status) {
-          console.log(`⚠️ [${index + 1}/${allBrokers.length}] Broker ${broker.broker_} not found, skipping...`);
-          break;
-        }
-
-        const percentage = Number(Number(calculatePercentage(String(currentBroker.status))).toFixed(0));
-        
-        // Log progress
-        console.log(`⏳ [${index + 1}/${allBrokers.length}] ${broker.broker_}: ${percentage}%`);
-
-        if (percentage >= 30) {
-          console.log(`✅ [${index + 1}/${allBrokers.length}] ${broker.broker_} reached ${percentage}%`);
-          break;
-        }
+      } catch (error) {
+        console.error(`❌ Error: ${broker.broker_}:`, error.message);
       }
-    } catch (error) {
-      console.error(`❌ [${index + 1}/${allBrokers.length}] Error: ${broker.broker_}:`, error.message);
     }
-  }
 
-  console.log('✅ Completed resetting all brokers');
+    console.log('✅ Completed resetting all brokers');
+    return { success: true, message: 'Completed' };
+    
+  } finally {
+    // Luôn release lock khi hoàn thành hoặc lỗi
+    isResetting = false;
+    resetProgress = { current: 0, total: 0, currentBroker: null };
+  }
 }
 
 
