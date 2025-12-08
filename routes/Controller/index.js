@@ -126,6 +126,7 @@ router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, r
 
 // ✅ Hàm chạy background với while loop
 async function resetBrokersLoop() {
+
 const allBrokers = await Redis.getAllBrokers();
 if(allBrokers.length <= 1){
   console.log('❌ No brokers to reset');
@@ -151,11 +152,8 @@ let index = 0;
       }
       const status = String(allBrokers_[index-1].status);
       const Per_status = Number(Number(calculatePercentage(status)).toFixed(0));
-      // // console.log(`🔄 Resetting broker:${index-1} : ${status} - ${Per_status}`);
       if(Per_status >= 30){
         index++;
-        //  this.appService.resetBroker(allBrokers[index-1].broker_, "ALL");
-
          await Redis.publish("RESET_ALL", JSON.stringify({
           Symbol: "ALL-BROKERS",
           Broker: allBrokers[index-1].broker_,
@@ -173,6 +171,43 @@ let index = 0;
       // await new Promise(resolve => setTimeout(resolve, 10000));
     }
   }
+}
+
+async function resetBrokersLoop() {
+  const allBrokers = await Redis.getAllBrokers();
+  if (allBrokers.length <= 1) {
+    console.log('❌ No brokers to reset');
+    return;
+  }
+  
+  console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
+  
+  for (let index = 0; index < allBrokers.length; index++) {
+    const broker = allBrokers[index];
+    
+    // Publish reset cho broker hiện tại
+    await Redis.publish("RESET_ALL", JSON.stringify({
+      Symbol: "ALL-BROKERS",
+      Broker: broker.broker_,
+    }));
+    console.log(`✅ Reset started: ${broker.broker_}`);
+    
+    // Đợi broker đạt 30% trước khi tiếp tục
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // delay 1s
+      
+      const updatedBrokers = await Redis.getAllBrokers();
+      const currentBroker = updatedBrokers[index];
+      const percentage = Number(calculatePercentage(String(currentBroker.status)).toFixed(0));
+      
+      if (percentage >= 30) {
+        console.log(`📊 Broker ${broker.broker_} reached ${percentage}%`);
+        break;
+      }
+    }
+  }
+  
+  console.log('✅ Completed resetting all brokers');
 }
 
 
