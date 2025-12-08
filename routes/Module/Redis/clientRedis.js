@@ -571,7 +571,7 @@ class RedisManager {
     // ==================== RESET PROGRESS TRACKING (SIMPLE) ====================
     
     /**
-     * Bắt đầu theo dõi reset - lưu list brokers cần reset
+     * Bắt đầu theo dõi reset
      */
     async startResetTracking(brokers) {
         try {
@@ -595,12 +595,12 @@ class RedisManager {
     }
 
     /**
-     * Update phần trăm của broker (tự động gọi khi có status update)
+     * Update phần trăm của broker (AUTO CALL từ WebSocket)
      */
     async updateResetProgress(brokerName, percentage) {
         try {
             const data = await this.client.get('reset_progress');
-            if (!data) return false;
+            if (!data) return false; // Không có reset đang chạy
             
             const progress = JSON.parse(data);
             const broker = progress.brokers.find(b => b.name === brokerName);
@@ -609,11 +609,14 @@ class RedisManager {
                 broker.percentage = percentage;
                 if (percentage >= 30) {
                     broker.completed = true;
+                    log(colors.green, 'RESET', colors.reset, 
+                        `✅ ${brokerName} completed: ${percentage}%`);
                 }
                 await this.client.setex('reset_progress', 3600, JSON.stringify(progress));
+                return true;
             }
             
-            return true;
+            return false;
         } catch (error) {
             console.error('Error updating reset progress:', error);
             return false;
@@ -638,23 +641,7 @@ class RedisManager {
     }
 
     /**
-     * Xóa tracking khi xong
-     */
-    async clearResetTracking() {
-        try {
-            await this.client.del('reset_progress');
-            log(colors.green, 'REDIS', colors.reset, '✅ Cleared reset tracking');
-        } catch (error) {
-            console.error('Error clearing reset tracking:', error);
-        }
-    }
-
-    // ==================== END RESET PROGRESS TRACKING ====================
-
-        // ==================== RESET LOCK ====================
-    
-    /**
-     * Check xem có đang reset không
+     * Check có đang reset không
      */
     async isResetting() {
         try {
@@ -666,7 +653,7 @@ class RedisManager {
     }
 
     /**
-     * Lấy thông tin reset đang chạy
+     * Lấy status reset
      */
     async getResetStatus() {
         try {
@@ -682,12 +669,26 @@ class RedisManager {
                 progress: `${completed}/${total}`,
                 percentage: Math.round((completed / total) * 100),
                 startedAt: progress.startedAt,
-                currentBroker: progress.brokers[progress.currentIndex]?.name || 'Unknown'
+                brokers: progress.brokers
             };
         } catch (error) {
             return null;
         }
     }
+
+    /**
+     * Xóa tracking khi xong
+     */
+    async clearResetTracking() {
+        try {
+            await this.client.del('reset_progress');
+            log(colors.green, 'REDIS', colors.reset, '✅ Cleared reset tracking');
+        } catch (error) {
+            console.error('Error clearing reset tracking:', error);
+        }
+    }
+
+    // ==================== END RESET PROGRESS TRACKING ====================
 }
 
 module.exports = new RedisManager();
