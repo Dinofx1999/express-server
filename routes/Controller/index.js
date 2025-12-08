@@ -229,7 +229,7 @@ router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, n
   res.status(200).json({ message: "Reset all brokers initiated." });
 });
 router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, res, next) {
-    const deleteResult = await Redis.clearAllAppData();
+    const deleteResult = await Redis.clearAllBroker();
     return res.status(200).json({
       deleteResult
     });

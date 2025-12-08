@@ -316,7 +316,39 @@ class RedisManager {
     }
 
     // ✅ Xóa chỉ các key của app
-    async clearAllAppData() {
+    async clearAllBroker() {
+        try {
+            const patterns = ['BROKER:*'];
+            let totalDeleted = 0;
+
+            for (const pattern of patterns) {
+                const keys = await this.scanKeys(pattern);
+
+                if (keys.length > 0) {
+                    // ✅ Xóa theo batch để tránh block
+                    const batchSize = 100;
+                    for (let i = 0; i < keys.length; i += batchSize) {
+                        const batch = keys.slice(i, i + batchSize);
+                        await this.client.del(...batch);
+                    }
+
+                    log(colors.yellow, 'REDIS', colors.reset, 
+                        `Deleted ${keys.length} keys matching "${pattern}"`);
+                    totalDeleted += keys.length;
+                }
+            }
+
+            log(colors.green, 'REDIS', colors.reset, 
+                `✅ Cleared ${totalDeleted} keys total. Ready for fresh data.`);
+
+            return { success: true, totalDeleted };
+        } catch (error) {
+            log(colors.red, 'REDIS', colors.reset, `Error clearing app data: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+     async clearAllAppData() {
         try {
             const patterns = ['BROKER:*', 'symbol:*', 'Analysis:*'];
             let totalDeleted = 0;
