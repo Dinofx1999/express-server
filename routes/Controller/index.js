@@ -102,7 +102,7 @@ router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res
 });
 
 // API để check progress
-app.get('/v1/api/reset-status', (req, res) => {
+router.get('/v1/api/reset-status', (req, res) => {
   res.json({
     isRunning: isResetting,
     progress: resetProgress
