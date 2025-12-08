@@ -234,10 +234,9 @@ router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, r
 
 // Biến global để track trạng thái
 let isResetting = false;
-let resetProgress = { current: 0, total: 0, currentBroker: null };
+let resetProgress = { current: 0, total: 0, currentBroker: null, skipped: [] };
 
 async function resetBrokersLoop() {
-  // Check nếu đang chạy thì reject
   if (isResetting) {
     return { 
       success: false, 
@@ -252,67 +251,109 @@ async function resetBrokersLoop() {
     return { success: false, message: 'No brokers to reset' };
   }
 
-  // Set lock
   isResetting = true;
-  resetProgress = { current: 0, total: allBrokers.length, currentBroker: null };
+  resetProgress = { current: 0, total: allBrokers.length, currentBroker: null, skipped: [] };
 
   console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
+  console.log(`📋 Broker list: ${allBrokers.map(b => b.broker_).join(', ')}`);
 
   try {
     for (let index = 0; index < allBrokers.length; index++) {
       const broker = allBrokers[index];
       
-      // Update progress
       resetProgress.current = index + 1;
       resetProgress.currentBroker = broker.broker_;
 
-      try {
-        await Redis.publish("RESET_ALL", JSON.stringify({
-          Symbol: "ALL-BROKERS",
-          Broker: broker.broker_,
-        }));
-        console.log(`✅ [${index + 1}/${allBrokers.length}] Reset started: ${broker.broker_}`);
+      let success = false;
+      let retryCount = 0;
+      const maxRetries = 3;
 
-        const maxWaitTime = 60000;
-        const startTime = Date.now();
+      while (!success && retryCount < maxRetries) {
+        try {
+          console.log(`\n🔄 [${index + 1}/${allBrokers.length}] Processing: ${broker.broker_} (attempt ${retryCount + 1})`);
+          
+          await Redis.publish("RESET_ALL", JSON.stringify({
+            Symbol: "ALL-BROKERS",
+            Broker: broker.broker_,
+          }));
 
-        while (true) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          const maxWaitTime = 120000; // Tăng lên 120 giây
+          const startTime = Date.now();
+          let lastPercentage = 0;
 
-          if (Date.now() - startTime > maxWaitTime) {
-            console.log(`⏱️ [${index + 1}/${allBrokers.length}] Timeout for ${broker.broker_}`);
-            break;
+          while (true) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Poll mỗi 2s
+
+            const elapsed = Date.now() - startTime;
+            
+            if (elapsed > maxWaitTime) {
+              console.log(`⏱️ [${index + 1}/${allBrokers.length}] Timeout for ${broker.broker_} at ${lastPercentage}%`);
+              break;
+            }
+
+            const updatedBrokers = await Redis.getAllBrokers();
+            const currentBroker = updatedBrokers.find(b => b.broker_ === broker.broker_);
+
+            if (!currentBroker) {
+              console.log(`⚠️ Broker ${broker.broker_} not found in list!`);
+              console.log(`📋 Available brokers: ${updatedBrokers.map(b => b.broker_).join(', ')}`);
+              break;
+            }
+
+            if (!currentBroker.status) {
+              console.log(`⚠️ Broker ${broker.broker_} has no status field!`);
+              console.log(`📋 Broker data: ${JSON.stringify(currentBroker)}`);
+              break;
+            }
+
+            const percentage = Number(Number(calculatePercentage(String(currentBroker.status))).toFixed(0));
+            lastPercentage = percentage;
+
+            // Log mỗi 10 giây
+            if (elapsed % 10000 < 2000) {
+              console.log(`⏳ [${index + 1}/${allBrokers.length}] ${broker.broker_}: ${percentage}% (${Math.round(elapsed/1000)}s)`);
+            }
+
+            if (percentage >= 30) {
+              console.log(`✅ [${index + 1}/${allBrokers.length}] ${broker.broker_} reached ${percentage}%`);
+              success = true;
+              break;
+            }
           }
 
-          const updatedBrokers = await Redis.getAllBrokers();
-          const currentBroker = updatedBrokers.find(b => b.broker_ === broker.broker_);
-
-          if (!currentBroker || !currentBroker.status) {
-            console.log(`⚠️ Broker ${broker.broker_} not found, skipping...`);
-            break;
+          if (!success) {
+            retryCount++;
+            if (retryCount < maxRetries) {
+              console.log(`🔁 Retrying ${broker.broker_}...`);
+              await new Promise(resolve => setTimeout(resolve, 5000)); // Đợi 5s trước khi retry
+            }
           }
 
-          const percentage = Number(Number(calculatePercentage(String(currentBroker.status))).toFixed(0));
-
-          if (percentage >= 30) {
-            console.log(`✅ [${index + 1}/${allBrokers.length}] ${broker.broker_} reached ${percentage}%`);
-            break;
-          }
+        } catch (error) {
+          console.error(`❌ Error processing ${broker.broker_}:`, error.message);
+          retryCount++;
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
-      } catch (error) {
-        console.error(`❌ Error: ${broker.broker_}:`, error.message);
+      }
+
+      if (!success) {
+        console.log(`❌ [${index + 1}/${allBrokers.length}] FAILED: ${broker.broker_} after ${maxRetries} retries`);
+        resetProgress.skipped.push(broker.broker_);
       }
     }
 
-    console.log('✅ Completed resetting all brokers');
-    return { success: true, message: 'Completed' };
-    
+    console.log('\n========== RESET SUMMARY ==========');
+    console.log(`✅ Completed: ${allBrokers.length - resetProgress.skipped.length}/${allBrokers.length}`);
+    if (resetProgress.skipped.length > 0) {
+      console.log(`❌ Skipped brokers: ${resetProgress.skipped.join(', ')}`);
+    }
+    console.log('====================================\n');
+
+    return { success: true, message: 'Completed', skipped: resetProgress.skipped };
+
   } finally {
-    // Luôn release lock khi hoàn thành hoặc lỗi
     isResetting = false;
-    resetProgress = { current: 0, total: 0, currentBroker: null };
   }
 }
-
 
 module.exports = router;
