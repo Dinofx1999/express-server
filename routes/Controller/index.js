@@ -82,24 +82,113 @@ router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next)
     'code' : 0
   });
 });
-router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res, next) {
-  if (isResetting) {
-    return res.status(409).json({
-      success: false,
-      message: 'Reset is already in progress',
-      progress: resetProgress
+// router.get(`/${VERSION}/reset-all-brokers`,authRequired, async function(req, res, next) {
+//   if (isResetting) {
+//     return res.status(409).json({
+//       success: false,
+//       message: 'Reset is already in progress',
+//       progress: resetProgress
+//     });
+//   }
+
+//   res.json({ 
+//     success: true, 
+//     message: 'Reset process started in background' 
+//   });
+
+//   resetBrokersLoop().catch(err => {
+//     console.error('❌ resetBrokersLoop failed:', err);
+//   });
+// });
+
+router.get(`/${VERSION}/reset-all-brokers`, authRequired, async function(req, res, next) {
+  try {
+    // ✅ CHECK nếu đang reset rồi
+    const isResetting = await Redis.isResetting();
+    
+    if (isResetting) {
+      const status = await Redis.getResetStatus();
+      return res.json({ 
+        success: false, 
+        message: 'Reset is already in progress',
+        status: status
+      });
+    }
+    
+    // Lấy danh sách brokers
+    const allBrokers = await Redis.getAllBrokers();
+    
+    if (allBrokers.length === 0) {
+      return res.json({ success: false, message: 'No brokers to reset' });
+    }
+    
+    // ✅ BẮT ĐẦU tracking (tạo lock)
+    await Redis.startResetTracking(allBrokers);
+    
+    // Response ngay
+    res.json({ 
+      success: true, 
+      message: `Started resetting ${allBrokers.length} brokers`,
+      totalBrokers: allBrokers.length
     });
+    
+    // Chạy background
+    setImmediate(async () => {
+      try {
+        for (let i = 0; i < allBrokers.length; i++) {
+          const broker = allBrokers[i];
+          
+          console.log(`\n[${i + 1}/${allBrokers.length}] Processing: ${broker.broker_}`);
+          
+          // Update current index
+          await updateCurrentIndex(i);
+          
+          await Redis.publish("RESET_ALL", JSON.stringify({
+            Symbol: "ALL-BROKERS",
+            Broker: broker.broker_
+          }));
+          
+          const maxWait = 120000;
+          const start = Date.now();
+          
+          while (Date.now() - start < maxWait) {
+            await new Promise(r => setTimeout(r, 1000));
+            
+            const completed = await Redis.isResetCompleted(broker.broker_);
+            if (completed) {
+              console.log(`✅ [${i + 1}/${allBrokers.length}] ${broker.broker_} completed!`);
+              break;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error in reset loop:', error);
+      } finally {
+        // ✅ XÓA lock khi xong
+        await Redis.clearResetTracking();
+        console.log('✅ All brokers reset completed!');
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error starting reset:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
-
-  res.json({ 
-    success: true, 
-    message: 'Reset process started in background' 
-  });
-
-  resetBrokersLoop().catch(err => {
-    console.error('❌ resetBrokersLoop failed:', err);
-  });
 });
+
+// Helper function to update current index
+async function updateCurrentIndex(index) {
+  try {
+    const data = await Redis.client.get('reset_progress');
+    if (data) {
+      const progress = JSON.parse(data);
+      progress.currentIndex = index;
+      await Redis.client.setex('reset_progress', 3600, JSON.stringify(progress));
+    }
+  } catch (error) {
+    console.error('Error updating index:', error);
+  }
+}
 
 // API để check progress
 router.get('/v1/api/reset-status', (req, res) => {

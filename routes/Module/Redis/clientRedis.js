@@ -567,6 +567,127 @@ class RedisManager {
             console.error('Error disconnecting:', error);
         }
     }
+
+    // ==================== RESET PROGRESS TRACKING (SIMPLE) ====================
+    
+    /**
+     * Bắt đầu theo dõi reset - lưu list brokers cần reset
+     */
+    async startResetTracking(brokers) {
+        try {
+            const data = {
+                brokers: brokers.map(b => ({
+                    name: b.broker_ || b.broker,
+                    percentage: 0,
+                    completed: false
+                })),
+                currentIndex: 0,
+                startedAt: Date.now()
+            };
+            
+            await this.client.setex('reset_progress', 3600, JSON.stringify(data));
+            log(colors.green, 'REDIS', colors.reset, `✅ Started tracking ${brokers.length} brokers`);
+            return true;
+        } catch (error) {
+            console.error('Error starting reset tracking:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Update phần trăm của broker (tự động gọi khi có status update)
+     */
+    async updateResetProgress(brokerName, percentage) {
+        try {
+            const data = await this.client.get('reset_progress');
+            if (!data) return false;
+            
+            const progress = JSON.parse(data);
+            const broker = progress.brokers.find(b => b.name === brokerName);
+            
+            if (broker) {
+                broker.percentage = percentage;
+                if (percentage >= 30) {
+                    broker.completed = true;
+                }
+                await this.client.setex('reset_progress', 3600, JSON.stringify(progress));
+            }
+            
+            return true;
+        } catch (error) {
+            console.error('Error updating reset progress:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Kiểm tra broker đã hoàn thành chưa
+     */
+    async isResetCompleted(brokerName) {
+        try {
+            const data = await this.client.get('reset_progress');
+            if (!data) return false;
+            
+            const progress = JSON.parse(data);
+            const broker = progress.brokers.find(b => b.name === brokerName);
+            
+            return broker ? broker.completed : false;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Xóa tracking khi xong
+     */
+    async clearResetTracking() {
+        try {
+            await this.client.del('reset_progress');
+            log(colors.green, 'REDIS', colors.reset, '✅ Cleared reset tracking');
+        } catch (error) {
+            console.error('Error clearing reset tracking:', error);
+        }
+    }
+
+    // ==================== END RESET PROGRESS TRACKING ====================
+
+        // ==================== RESET LOCK ====================
+    
+    /**
+     * Check xem có đang reset không
+     */
+    async isResetting() {
+        try {
+            const exists = await this.client.exists('reset_progress');
+            return exists === 1;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Lấy thông tin reset đang chạy
+     */
+    async getResetStatus() {
+        try {
+            const data = await this.client.get('reset_progress');
+            if (!data) return null;
+            
+            const progress = JSON.parse(data);
+            const completed = progress.brokers.filter(b => b.completed).length;
+            const total = progress.brokers.length;
+            
+            return {
+                isRunning: true,
+                progress: `${completed}/${total}`,
+                percentage: Math.round((completed / total) * 100),
+                startedAt: progress.startedAt,
+                currentBroker: progress.brokers[progress.currentIndex]?.name || 'Unknown'
+            };
+        } catch (error) {
+            return null;
+        }
+    }
 }
 
 module.exports = new RedisManager();

@@ -25,7 +25,7 @@ var Color_Log_Error = "\x1b[31m%s\x1b[0m";
 const Client_Connected = new Map();
 
 const {log , colors} = require('../Helpers/Log');
-const {formatString , normSym} = require('../Helpers/text.format');
+const {formatString , normSym ,calculatePercentage} = require('../Helpers/text.format');
 const { console } = require('inspector');
 const { stringify } = require('querystring');
 // let brokersActived = [];
@@ -40,7 +40,10 @@ const queue = new SymbolDebounceQueue({
     delayBetweenTasks: 100,    // 100ms delay giữa các task
     cooldownTime: 5000       // 5s cooldown after processing
 });
-
+async function onBrokerStatusChange(brokerName, statusString) {
+    const percentage = calculatePercentage(statusString);
+    await Redis.updateResetProgress(brokerName, percentage);
+}
 function setupWebSocketServer(port) {
     SaveAll_Info();
      startTradeQueue();
@@ -267,6 +270,8 @@ function setupWebSocketServer(port) {
                                 const Index = data.data.index;
                                 const reset_text = data.data.Payload.mess;
                                 await Redis.updateBrokerStatus(formatString(Broker), reset_text); 
+                                await onBrokerStatusChange(formatString(Broker), reset_text);
+                                
                                 const Response = await Redis.getSymbol(Symbol);
                                 // console.log("Response:", Response);
                                 let responseData;
