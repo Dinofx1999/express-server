@@ -54,7 +54,7 @@ function runAnalysisLoop() {
   async function tick() {
     const startTime = Date.now();
     const configAdmin = await Redis.getConfigAdmin();
-    console.log(configAdmin);
+    // console.log(configAdmin);
     const Delay_Stop = configAdmin.Delay_Stop || 10;
     const Spread_Plus = configAdmin.SpreadPlus || 1.2;
     try {
