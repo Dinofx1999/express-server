@@ -6,7 +6,7 @@ const {getSymbolInfo , getForexSession ,Digit , Digit_Rec} = require('../Jobs/Fu
 const Redis = require('../Redis/clientRedis');
 const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.helper');
 
- async function Analysis(data, symbol ,symbolConfig_data) {
+ async function Analysis(data, symbol ,symbolConfig_data , spread_plus, Delay_Stop) {
     try {
 
     let total_length = data.length;
@@ -16,10 +16,10 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
 
         let Max_Delay = Number(process.env.MAX_NEGATIVE_DELAY) * 60; // Chuyển phút sang ms
         let Delay_symbol = Number(CURRENT.timedelay);
-        if( Delay_symbol < Max_Delay ) return; // Bỏ qua nếu delay quá lớn
+        if( Delay_symbol < Max_Delay && CURRENT.timecurrent + Delay_Stop < CHECK.timecurrent) return; // Bỏ qua nếu delay quá lớn
 
         let SPREAD_MIN_CURRENT = Number(CURRENT.spread_mdf);
-        let SPREAD_X_CURRENT = Number(process.env.SPREAD_X_CURRENT) || 1.5;
+        let SPREAD_X_CURRENT = Number(spread_plus) || 1.5;
         let SESSION = getForexSession(getTimeGMT7());
 
         if(symbolConfig_data){

@@ -10,7 +10,8 @@ const ConfigAdminSchema = new mongoose.Schema(
 
     AutoTrade: { type: Boolean, default: true },
     sendTelegram: { type: Boolean, default: true },
-    SpreadPlus: { type: Number, default: 1.2 },
+    SpreadPlus: { type: Number, default: 1.2 },    
+    Delay_Stop: { type: Number, default: 10 },    //Kiem tra delay broker khong duoc phan tich
   },
   { timestamps: true }
 );

@@ -16,7 +16,7 @@ const OUTLIER_THRESHOLD_PIPS = 5;  // Ngưỡng phát hiện broker lệch (pips
  * @param {string} symbol - Symbol (VD: EURUSD)
  * @param {Object} symbolConfig_data - Config theo symbol
  */
-async function Analysis_Type2(data, symbol, symbolConfig_data) {
+async function Analysis_Type2(data, symbol, symbolConfig_data , Delay_Stop , Spread_Plus) {
     try {
         // Kiểm tra dữ liệu
         if (!data || data.length < 2) return;
@@ -137,7 +137,7 @@ function calculateMedian(arr) {
  */
 async function analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit) {
     
-    
+    console.log(`Phân tích ${symbol} | Broker Lệch: ${CURRENT.Broker} | Loại: ${CURRENT.direction} | Chênh lệch: ${CURRENT.diffPips} pips`);
     let Max_Delay = Number(process.env.MAX_NEGATIVE_DELAY) * 60; // Chuyển phút sang ms
     let Delay_symbol = Number(CURRENT.timedelay);
     if( Delay_symbol < Max_Delay ) return; // Bỏ qua nếu delay quá lớn
