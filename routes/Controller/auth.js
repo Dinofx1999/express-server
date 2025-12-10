@@ -5,6 +5,7 @@ const { validateSchema } = require('../../validations/validateSchema');
 const { loginSchema, registerSchema } = require('../../validations/schemas.yup');
 const {log , colors} = require('../Module/Helpers/Log');
 const crypto = require('crypto');
+const { authRequired, requireRole } = require('../Auth/authMiddleware');
 
 //HTTP Basic Auth
 const passport = require('passport');
@@ -60,10 +61,17 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
     res.json({ ok: true });
   });
   
-  router.get('/test', function (req, res, next) {
-    console.log("OK");
-    res.json({ ok: true });
-  });
+ router.get('/account-user',authRequired, async function (req, res, next) {
+  try {
+    const data = await userLogin.find({}).lean(); // .lean() cho nhẹ & trả về object thuần
+
+    // console.log(data); // lúc này là mảng user đúng nghĩa
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error("Lỗi /account-user:", err);
+    res.status(500).json({ ok: false, message: "Lỗi server khi lấy danh sách user" });
+  }
+});
 
   router.post(API_LOGIN, async (req, res, next) => {
     req.body.username = req.body.username.toLowerCase();
@@ -133,5 +141,34 @@ try {
 }
   });
 
+router.get('/get-name-by-secret/:id_SECRET',authRequired, async function (req, res) {
+  try {
+    const { id_SECRET } = req.params;
+
+    const user = await userLogin.findOne({ id_SECRET }).lean();
+
+    if (!user) {
+      return res.status(404).json({
+        ok: false,
+        message: "Không tìm thấy user với id_SECRET này"
+      });
+    }
+
+    return res.json({
+      ok: true,
+      name: user.name,
+      username: user.username,
+      email: user.email,
+      role: user.rule
+    });
+
+  } catch (err) {
+    console.error("Lỗi /get-name-by-secret:", err);
+    return res.status(500).json({
+      ok: false,
+      message: "Lỗi server"
+    });
+  }
+});
 
 module.exports = router;

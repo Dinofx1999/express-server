@@ -10,6 +10,7 @@ var usersRouter = require('./routes/users');
 var Login = require('./routes/Controller/auth.js');
 const symbolConfig = require('./routes/Controller/symbolConfig.js');
 const ErrorAnalysis = require('./routes/Controller/errors.js');
+const ConfigAdmin = require('./routes/Controller/configAdmin.js');
 const {  API_ALL_INFO_BROKERS , 
           VERSION,
           API_PORT_BROKER_ENDPOINT, 
@@ -47,6 +48,7 @@ app.use(`/${VERSION}/users`, usersRouter);
 app.use(`/auth`, Login);
 app.use(`/${VERSION}/symbol`, symbolConfig);
 app.use(`/${VERSION}/errors`, ErrorAnalysis);
+app.use(`/${VERSION}/admin`, ConfigAdmin);
 
 
 // catch 404 and forward to error handler

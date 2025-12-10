@@ -122,6 +122,24 @@ class RedisManager {
         await this.client.set(key, JSON.stringify(data));
     }
 
+    async saveConfigAdmin(data) {
+        const key = `CONFIG`;
+        await this.client.set(key, JSON.stringify(data));
+    }
+
+    async getConfigAdmin() {
+        const key = `CONFIG`;
+        const raw = await this.client.get(key);
+        if (raw) {
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                console.error('Error parsing config admin data:', error);
+            }
+        }
+        return null;
+    }
+
     // ✅ FIX: Dùng SCAN
     async getAllBrokers_2() {
         const keys = await this.scanKeys('BROKER:*');

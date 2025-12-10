@@ -67,4 +67,4 @@ ErrorAnalysisSchema.index({ Symbol: 1, Broker: 1 });
 ErrorAnalysisSchema.index({ Messenger: 1 });
 ErrorAnalysisSchema.index({ TimeStart: -1 });
 
-module.exports = mongoose.model(String(process.env.ANALYSIS_DB) || 'ANALYSIS_DB', ErrorAnalysisSchema);
+module.exports = mongoose.model('analyses', ErrorAnalysisSchema);

@@ -5,10 +5,21 @@ var {  ErrorAnalysis} = require('../../models/index');
 /* GET home page. */
 
 
+// router.get('/all', async function(req, res, next) {
+//     try {
+//         const Data = await ErrorAnalysis.find({$expr: { $lt: ["$TimeStart", "$TimeCurrent"] }})
+//                                .sort({ TimeStart: -1 });
+//         return res.status(200).json(Data); // Trả về body, không phải toàn bộ req
+//     } catch (error) {
+//         return res.status(400).json(error); 
+//     }
+// });
+
+
 router.get('/all', async function(req, res, next) {
     try {
-        const Data = await ErrorAnalysis.find({$expr: { $lt: ["$time_start", "$time_current"] }})
-                               .sort({ time_start: -1 });
+        const Data = await ErrorAnalysis.find({$expr: { $lt: ["$TimeStart", "$TimeCurrent"] }})
+                               .sort({ TimeStart: -1 });
         return res.status(200).json(Data); // Trả về body, không phải toàn bộ req
     } catch (error) {
         return res.status(400).json(error); 
@@ -79,17 +90,17 @@ router.post('/search', async function(req, res, next) {
     try {
         if(broker !== '' && (symbol === '' || symbol === undefined)){
             console.log("Broker" , broker);
-            ErrorAnalysis.find({broker : broker}).then((result) => {
+            ErrorAnalysis.find({Broker : broker}).then((result) => {
                 return res.status(200).send(result);
             });
         }else if((broker === '' || broker === undefined) && symbol !== ''){
             console.log("Symbol" , symbol);
-            ErrorAnalysis.find({symbol : symbol}).then((result) => {
+            ErrorAnalysis.find({Symbol : symbol}).then((result) => {
                 return res.status(200).send(result);
             });
         }else{
             console.log("All" , symbol , broker);
-            ErrorAnalysis.find({symbol : symbol , broker : broker}).then((result) => {
+            ErrorAnalysis.find({Symbol : symbol , Broker : broker}).then((result) => {
                 return res.status(200).send(result);
             });
         }
