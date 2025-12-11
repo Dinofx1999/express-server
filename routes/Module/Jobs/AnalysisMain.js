@@ -56,7 +56,8 @@ function runAnalysisLoop() {
     const configAdmin = await Redis.getConfigAdmin();
     // console.log(configAdmin);
     const Delay_Stop = configAdmin.Delay_Stop || 10;
-    const Spread_Plus = configAdmin.SpreadPlus || 1.2;
+    const Spread_Plus = configAdmin.SpreadPlus || 1;
+    const Type_Analysis = configAdmin.Type_Analysis || "type1";
     try {
       // 1️⃣ Lấy danh sách symbols
       const ALL_Symbol = await Redis.getAllUniqueSymbols();
@@ -78,11 +79,9 @@ function runAnalysisLoop() {
             const priceData = priceDataMap.get(sym);
 
             if (!priceData || priceData.length <= 1) return;
-            const TYPE = String(process.env.ANALYSIS_TYPE);
-            // console.log(TYPE);
-            if(String(process.env.ANALYSIS_TYPE) === 'ANALYSIS_TYPE_1'){
+            if(String(Type_Analysis) === 'type1'){
                 await Analysis(priceData, sym, symbolConfig ,Delay_Stop ,Spread_Plus);
-            }else if(String(process.env.ANALYSIS_TYPE) === 'ANALYSIS_TYPE_2'){
+            }else if(String(Type_Analysis) === 'type2'){
                 await Analysis_Type2(priceData, sym, symbolConfig , Delay_Stop ,Spread_Plus);
             }
           } catch (err) {

@@ -19,22 +19,26 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         if( Delay_symbol < Max_Delay && CURRENT.timecurrent + Delay_Stop < CHECK.timecurrent) return; // Bỏ qua nếu delay quá lớn
 
         let SPREAD_MIN_CURRENT = Number(CURRENT.spread_mdf);
-        let SPREAD_X_CURRENT = Number(spread_plus) || 1.5;
+        let SPREAD_X_CURRENT = Number(spread_plus) || 1;
+
+        let SPREAD_X_SESSION = 1;
         let SESSION = getForexSession(getTimeGMT7());
 
         if(symbolConfig_data){
-            if(SESSION === "Sydney") SPREAD_X_CURRENT = symbolConfig_data.Sydney;
-            if(SESSION === "Tokyo") SPREAD_X_CURRENT = symbolConfig_data.Tokyo;
-            if(SESSION === "London") SPREAD_X_CURRENT = symbolConfig_data.London;
-            if(SESSION === "NewYork") SPREAD_X_CURRENT = symbolConfig_data.NewYork;
+            if(SESSION === "Sydney") SPREAD_X_SESSION = symbolConfig_data.Sydney;
+            if(SESSION === "Tokyo") SPREAD_X_SESSION = symbolConfig_data.Tokyo;
+            if(SESSION === "London") SPREAD_X_SESSION = symbolConfig_data.London;
+            if(SESSION === "NewYork") SPREAD_X_SESSION = symbolConfig_data.NewYork;
             if( CURRENT.Typeaccount === "STD") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
             if( CURRENT.Typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
         
         //Check BUY
-        let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT * SPREAD_X_CURRENT);
-        let Point_BUY = Spread_Sync * (Digit(parseInt(CHECK.digit)));
-        let Price_BUY_CURRENT = parseFloat(CURRENT.ask_mdf) + parseFloat(Point_BUY);
+        let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT* SPREAD_X_SESSION * SPREAD_X_CURRENT);       //Spread thay doi theo tung broker
+        let Point_Spread = Spread_Sync * parseFloat(Digit(parseInt(CHECK.digit))); //Chuyen sang point
+
+        //Check Buy
+        let Price_BUY_CURRENT = parseFloat(CURRENT.ask_mdf) + parseFloat(Point_Spread);
         let Price_BUY_CHECK = parseFloat(CHECK.bid_mdf);
 
         //Type
@@ -66,9 +70,9 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         }
 
         //Check SELL
-        let Point_SELL = Spread_Sync * parseFloat(Digit(parseInt(CHECK.digit)));
-        let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf - Point_SELL);
-        let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf) + parseFloat(Spread_Sync);
+        
+        let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf) - parseFloat(Point_Spread);
+        let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf);
 
         if(parseFloat(Price_SELL_CURRENT) > parseFloat(Price_SELL_CHECK)){
             const timeStart = getTimeGMT7();

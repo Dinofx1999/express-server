@@ -143,15 +143,16 @@ async function analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit , 
     if( Delay_symbol < Max_Delay && CURRENT.timecurrent + Delay_Stop < CHECK.timecurrent) return;
     // Lấy config spread
     let SPREAD_MIN_CURRENT = Number(CURRENT.spread_mdf);
-    let SPREAD_X_CURRENT = Number(spread_Plus) || 1.2;
+    let SPREAD_X_CURRENT = Number(spread_Plus) || 1;
+    let SPREAD_X_SESSION = 1;
     let SESSION = getForexSession(getTimeGMT7());
 
     // Apply config theo session và loại tài khoản
     if (symbolConfig_data) {
-        if (SESSION === "Sydney") SPREAD_X_CURRENT = symbolConfig_data.Sydney;
-        if (SESSION === "Tokyo") SPREAD_X_CURRENT = symbolConfig_data.Tokyo;
-        if (SESSION === "London") SPREAD_X_CURRENT = symbolConfig_data.London;
-        if (SESSION === "NewYork") SPREAD_X_CURRENT = symbolConfig_data.NewYork;
+        if (SESSION === "Sydney") SPREAD_X_SESSION = symbolConfig_data.Sydney;
+        if (SESSION === "Tokyo") SPREAD_X_SESSION = symbolConfig_data.Tokyo;
+        if (SESSION === "London") SPREAD_X_SESSION = symbolConfig_data.London;
+        if (SESSION === "NewYork") SPREAD_X_SESSION = symbolConfig_data.NewYork;
         if (CURRENT.Typeaccount === "STD") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
         if (CURRENT.Typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
     }
@@ -163,14 +164,14 @@ async function analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit , 
     }
 
     // Tính spread và point
-    let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT * SPREAD_X_CURRENT);
-    let Point = Spread_Sync * Digit(digit);
+    let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT* SPREAD_X_SESSION * SPREAD_X_CURRENT);       //Spread thay doi theo tung broker
+    let Point_Spread = Spread_Sync * parseFloat(Digit(parseInt(CHECK.digit))); //Chuyen sang point
 
     // ═══════════════════════════════════════════════════════════
     // CHECK BUY
     // ═══════════════════════════════════════════════════════════
-    let Price_BUY_CURRENT = parseFloat(CURRENT.ask_mdf) + Point;
-    let Price_BUY_CHECK = parseFloat(CHECK.bid_mdf);
+    let Price_BUY_CURRENT = parseFloat(CURRENT.ask_mdf) + parseFloat(Point_Spread);
+        let Price_BUY_CHECK = parseFloat(CHECK.bid_mdf);
 
     if (Price_BUY_CURRENT < Price_BUY_CHECK) {
         const timeStart = getTimeGMT7();
@@ -202,8 +203,8 @@ async function analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit , 
     // ═══════════════════════════════════════════════════════════
     // CHECK SELL
     // ═══════════════════════════════════════════════════════════
-    let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf) - Point;
-    let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf) + Spread_Sync;
+    let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf) - parseFloat(Point_Spread);
+        let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf);
 
     if (Price_SELL_CURRENT > Price_SELL_CHECK) {
         const timeStart = getTimeGMT7();
