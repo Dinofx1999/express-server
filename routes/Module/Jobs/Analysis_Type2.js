@@ -55,7 +55,7 @@ async function Analysis_Type2(data, symbol, symbolConfig_data , Delay_Stop , Spr
         // ═══════════════════════════════════════════════════════════
         for (const CURRENT of outlierGroup) {
             
-            await analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit);
+            await analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit , Spread_Plus , Delay_Stop);
         }
 
     } catch (error) {
@@ -135,15 +135,15 @@ function calculateMedian(arr) {
  * @param {Object} symbolConfig_data - Config theo symbol
  * @param {number} digit - Số chữ số thập phân
  */
-async function analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit) {
+async function analyzeSignal(CHECK, CURRENT, symbol, symbolConfig_data, digit , spread_Plus , Delay_Stop) {
     
-    console.log(`Phân tích ${symbol} | Broker Lệch: ${CURRENT.Broker} | Loại: ${CURRENT.direction} | Chênh lệch: ${CURRENT.diffPips} pips`);
+    // console.log(`Phân tích ${symbol} | Broker Lệch: ${CURRENT.Broker} | Loại: ${CURRENT.direction} | Chênh lệch: ${CURRENT.diffPips} pips`);
     let Max_Delay = Number(process.env.MAX_NEGATIVE_DELAY) * 60; // Chuyển phút sang ms
     let Delay_symbol = Number(CURRENT.timedelay);
-    if( Delay_symbol < Max_Delay ) return; // Bỏ qua nếu delay quá lớn
+    if( Delay_symbol < Max_Delay && CURRENT.timecurrent + Delay_Stop < CHECK.timecurrent) return;
     // Lấy config spread
     let SPREAD_MIN_CURRENT = Number(CURRENT.spread_mdf);
-    let SPREAD_X_CURRENT = Number(process.env.SPREAD_X_CURRENT) || 1.5;
+    let SPREAD_X_CURRENT = Number(spread_Plus) || 1.2;
     let SESSION = getForexSession(getTimeGMT7());
 
     // Apply config theo session và loại tài khoản

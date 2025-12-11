@@ -336,7 +336,7 @@ class RedisManager {
     // ✅ Xóa chỉ các key của app
     async clearAllBroker() {
         try {
-            const patterns = ['BROKER:*'];
+            const patterns = ['BROKER:*',"Analysis:*", "symbol:*"];
             let totalDeleted = 0;
 
             for (const pattern of patterns) {

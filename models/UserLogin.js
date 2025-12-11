@@ -15,7 +15,7 @@ const userLoginSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     rule: { type: String, required: true },
-    
+    actived: { type: String , default: false },
     // ═══ THÊM TRƯỜNG MỚI ═══
     id_SECRET: { 
         type: String, 
