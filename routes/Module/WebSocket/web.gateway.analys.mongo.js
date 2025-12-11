@@ -120,7 +120,11 @@ async function startJob(client, clientId) {
             
             // Build payload
             const payload = {
-                ...prices,
+                analysis : {
+                    Type_1: prices.Type_1 || [],
+                    Type_2: prices.Type_2 || []
+                },
+                timeAnalysis: prices.time_analysis || null,
                 timestamp: now,
                 symbols: symbols,
                 resetting: resetting

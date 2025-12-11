@@ -1,6 +1,7 @@
 /* eslint-disable */
 
 const { log, colors } = require('../Helpers/Log');
+const { getTimeGMT7 } = require('../Helpers/time');
 const {getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
 const {getSymbolInfo} = require('../Jobs/Func.helper');
 const {Analysis} = require('../Jobs/Analysis');
@@ -21,9 +22,12 @@ async function startJob() {
         console.error(`[JOB ${process.pid}] MongoDB connection failed:`, error.message);
         return;
     }
-const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 10000);
-  // Interval 10 giây
+const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 500);
+let isRunning = false;
+  // Interval 500ms
   setInterval(async () => {
+     if (isRunning) return;
+     isRunning = true;
     let Type_1 = [];
     let Type_2 = [];
     // const test = symbolsSetType.has('ABC');
@@ -31,8 +35,6 @@ const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 10000);
       minCount: Number(process.env.MIN_COUNT),
       minKhoangCach: 1,
     });
-
-
     result.forEach(item => {
             if (symbolsSetType.has(item.Symbol)) {
               Type_1.push(item);
@@ -42,22 +44,15 @@ const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 10000);
           });
     const data = {
       Type_1,
-      Type_2
+      Type_2,
+      time_analysis: getTimeGMT7(),
     };
-    // console.log(`[JOB ${process.pid}] Fetched ${Type_1.length} Type_1 and ${Type_2.length} Type_2 analyses from MongoDB.`);
-    await Redis.saveAnalysis(`ANALYSIS`, data);
-
+    await Redis.saveAnalysis(data);
+    isRunning = false;
   }, interval);
 
   console.log(`[JOB ${process.pid}] Save Analysis ready.`);
 }
 
-
- async function start_Get_ConfigSymbol() {
-  setInterval(() => {
-  const m = process.memoryUsage();
-  console.log("HeapUsed:", (m.heapUsed/1024/1024).toFixed(2),"MB");
-}, 5000);
-}
 // Auto-run khi process là ROLE=JOB
 module.exports = startJob;

@@ -571,32 +571,21 @@ class RedisManager {
         }
     }
 
-    async saveAnalysis(Analysis, data) {
-        const key = `Analysis:${Analysis}`;
+    async saveAnalysis(data) {
+        const key = `Analysis`;
         await this.client.set(key, JSON.stringify(data));
     }
 
     async getAnalysis() {
-        const keys = await this.scanKeys('Analysis:*');
-        const result = {};
-        
-        if (keys.length === 0) return result;
-        
-        const values = await this.client.mget(keys);
-        
-        keys.forEach((key, index) => {
-            const raw = values[index];
-            if (raw) {
-                try {
-                    result[key.replace('Analysis:', '')] = JSON.parse(raw);
-                } catch {
-                    result[key.replace('Analysis:', '')] = raw;
-                }
-            }
-        });
-        
-        return result;
-    }
+  const raw = await this.client.get('Analysis');
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw); // { Type_1, Type_2, time_analysis }
+  } catch {
+    return raw;
+  }
+}
 
     async getBrokerResetting() {
         const brokers = await this.getAllBrokers();
