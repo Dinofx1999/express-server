@@ -15,7 +15,7 @@ router.get("/config",authRequired, async (req, res) => {
   res.json({ success: true, data: config });
 });
 // router.get("/calculate",authRequired, getForexFactoryNews);
-router.get('/forex-news/impact/:level',authRequired, async (req, res) => {
+router.get('/forex-news/impact/:level', async (req, res) => {
     try {
         const { level } = req.params; // high, medium, low, all
         const news = await getForexFactoryNews();
