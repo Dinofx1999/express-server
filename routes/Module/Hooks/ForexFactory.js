@@ -9,6 +9,7 @@ async function getForexFactoryNews() {
         };
 
         const response = await axios.get(url, { headers });
+        console.log('ForexFactory response status:', response);
         const html = response.data;
 
         const regex = /window\.calendarComponentStates\[1\]\s*=\s*({[\s\S]*?});/;
@@ -33,7 +34,6 @@ async function getForexFactoryNews() {
             currency: event.currency,
             name: event.name
         }));
-        console.log('Forex Factory News fetched:', result.length, 'items');
 
         return result;
 
