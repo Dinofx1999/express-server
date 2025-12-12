@@ -17,9 +17,9 @@ router.get("/config",authRequired, async (req, res) => {
 // router.get("/calculate",authRequired, getForexFactoryNews);
 router.get('/forex-news/impact/:level', async (req, res) => {
     try {
+        console.log('Fetching Forex Factory News...');
         const { level } = req.params; // high, medium, low, all
         const news = await getForexFactoryNews();
-        console.log(news);
         // Nếu level = 'all', trả về tất cả
         const filtered = level.toLowerCase() === 'all' 
             ? news 
