@@ -3,6 +3,7 @@ const vm = require('vm');
 
 async function getForexFactoryNews() {
     try {
+        console.log('Fetching ForexFactory news...');
         const url = "https://www.forexfactory.com/calendar?day=today";
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
