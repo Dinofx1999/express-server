@@ -33,6 +33,7 @@ async function getForexFactoryNews() {
             currency: event.currency,
             name: event.name
         }));
+        console.log('Forex Factory News fetched:', result.length, 'items');
 
         return result;
 
