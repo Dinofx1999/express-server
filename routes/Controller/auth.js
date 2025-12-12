@@ -74,57 +74,71 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
 });
 
   router.post(API_LOGIN, async (req, res, next) => {
-    req.body.username = req.body.username.toLowerCase();
-    const { username, password } = req.body;
-    
-    try {
-        const userExists = await userLogin.findOne({ username, password });
-            if (userExists) {
-                 // Cấp token
-                // jwt
-                const payload = {
-                    message: 'payload',
-                    sub: username,
-                    iat: Date.now(),
-                    name: userExists.name,
-                };
-            
-                const secret = jwtSettings.SECRET;
-            
-                // ACCESS TOKEN
-                const accessToken = jwt.sign(payload, secret, {
-                    expiresIn: 24 * 60 * 60, // 24 giờ
-                    audience: jwtSettings.AUDIENCE,
-                    issuer: jwtSettings.ISSUER,
-                    algorithm: 'HS512',
-                });
-            
-                // REFRESH TOKEN
-                const refreshToken = jwt.sign({ username }, secret, { expiresIn: '365d' });
-                const user =  userExists;
+  req.body.username = req.body.username.toLowerCase();
+  const { username, password } = req.body;
 
-                // console.log("User logged in:", user);
-                 const data = {
-                  success: true,
-                  accessToken,
-                  refreshToken,
-                  user: {
-                    username: user.username,
-                    email: user.email,
-                    role: user.rule,
-                    fullname: user.name,
-                    id_SECRET: user.id_SECRET
-                  }
-                };
-                
-                res.send(data);
-            } else {
-                res.status(401).send({ message: 'Login failed!' });
-            }
-    } catch (error) {
-        res.status(401).send({ message: 'Login failed -> error!' });
+  try {
+    const userExists = await userLogin.findOne({ username, password });
+
+    // ❌ Không tồn tại user
+    if (!userExists) {
+      return res.status(401).send({ success: false, message: 'Tài Khoản không tồn tại' });
     }
-  });
+
+    // ❌ Chưa active
+    if (userExists.actived !== true) {
+      return res.status(403).send({
+        success: false,
+        message: 'Tài khoản chưa được kích hoạt, vui lòng liên hệ quản trị viên!'
+      });
+    }
+
+    // ✅ Đã active → cấp token
+    const payload = {
+      message: 'payload',
+      sub: username,
+      iat: Date.now(),
+      name: userExists.name,
+    };
+
+    const secret = jwtSettings.SECRET;
+
+    // ACCESS TOKEN
+    const accessToken = jwt.sign(payload, secret, {
+      expiresIn: 24 * 60 * 60, // 24h
+      audience: jwtSettings.AUDIENCE,
+      issuer: jwtSettings.ISSUER,
+      algorithm: 'HS512',
+    });
+
+    // REFRESH TOKEN
+    const refreshToken = jwt.sign(
+      { username },
+      secret,
+      { expiresIn: '365d' }
+    );
+
+    const user = userExists;
+
+    res.send({
+      success: true,
+      accessToken,
+      refreshToken,
+      user: {
+        username: user.username,
+        email: user.email,
+        role: user.rule,
+        fullname: user.name,
+        id_SECRET: user.id_SECRET
+      }
+    });
+
+  } catch (error) {
+    console.error('[LOGIN ERROR]', error);
+    res.status(500).send({ message: 'Login failed -> error!' });
+  }
+});
+
 
 
   router.get('/login', passport.authenticate('jwt', { session: false }), function (req, res, next) {

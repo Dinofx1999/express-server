@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
+const { boolean } = require('yup');
 
 // Hàm tạo hash 10 ký tự
 function generateSecretId(length = 10) {
@@ -15,7 +16,7 @@ const userLoginSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     rule: { type: String, required: true },
-    actived: { type: String , default: false },
+    actived: { type: Boolean, default: false },
     // ═══ THÊM TRƯỜNG MỚI ═══
     id_SECRET: { 
         type: String, 
