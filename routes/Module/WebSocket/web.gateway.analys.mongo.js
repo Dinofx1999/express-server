@@ -111,27 +111,30 @@ async function startJob(client, clientId) {
         }
 
         try {
-            const now = new Date().toISOString();
-            
-            // Lấy data từ Redis
-            const prices = await Redis.getAnalysis();
-            const symbols = await Redis.getAllUniqueSymbols();
-            const resetting = await Redis.getBrokerResetting();
-            
-            // Build payload
-            const payload = {
-                analysis : {
-                    Type_1: prices.Type_1 || [],
-                    Type_2: prices.Type_2 || []
-                },
-                timeAnalysis: prices.time_analysis || null,
-                timestamp: now,
-                symbols: symbols,
-                resetting: resetting
-            };
-            
-            client.send(JSON.stringify(payload));
-        } catch (error) {
+                const now = new Date().toISOString();
+                
+                // Lấy data từ Redis
+                const prices = await Redis.getAnalysis();
+                const symbols = await Redis.getAllUniqueSymbols();
+                const resetting = await Redis.getBrokerResetting();
+                
+                // ✅ DEFENSIVE CHECK
+                const analysis = prices || { Type_1: [], Type_2: [], time_analysis: null };
+                
+                // Build payload
+                const payload = {
+                    analysis: {
+                        Type_1: analysis.Type_1 || [],
+                        Type_2: analysis.Type_2 || []
+                    },
+                    timeAnalysis: analysis.time_analysis || null,
+                    timestamp: now,
+                    symbols: symbols || [],
+                    resetting: resetting || false
+                };
+                
+                client.send(JSON.stringify(payload));
+            } catch (error) {
             console.error(`❌ Job error for ${clientId}:`, error.message);
             
             if (client.readyState === WebSocket.OPEN) {

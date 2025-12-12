@@ -577,14 +577,25 @@ class RedisManager {
     }
 
     async getAnalysis() {
-  const raw = await this.client.get('Analysis');
-  if (!raw) return null;
+    const raw = await this.client.get('Analysis');
+    if (!raw) {
+        // ✅ Trả về default structure thay vì null
+        return {
+            Type_1: [],
+            Type_2: [],
+            time_analysis: null
+        };
+    }
 
-  try {
-    return JSON.parse(raw); // { Type_1, Type_2, time_analysis }
-  } catch {
-    return raw;
-  }
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return {
+            Type_1: [],
+            Type_2: [],
+            time_analysis: null
+        };
+    }
 }
 
     async getBrokerResetting() {

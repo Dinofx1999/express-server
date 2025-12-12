@@ -14,45 +14,60 @@ const Redis = require('../Redis/clientRedis');
 async function startJob() {
   console.log(`[JOB ${process.pid}] Cron.Mongo.Analyses booting...`);
 
-    // ⚠️ KẾT NỐI MONGODB TRƯỚC
+  try {
+    await connectMongoDB();
+    console.log(`[JOB ${process.pid}] MongoDB connected.`);
+  } catch (error) {
+    console.error(`[JOB ${process.pid}] MongoDB connection failed:`, error.message);
+    return;
+  }
+
+  const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 500);
+  let isRunning = false;
+
+  // ✅ FUNCTION để tái sử dụng
+  const runAnalysis = async () => {
+    if (isRunning) return;
+    isRunning = true;
+
     try {
-        await connectMongoDB();
-        console.log(`[JOB ${process.pid}] MongoDB connected.`);
+      let Type_1 = [];
+      let Type_2 = [];
+
+      const result = await getAnalysisInTimeWindow(Number(process.env.TIME_SECONDS), {
+        minCount: Number(process.env.MIN_COUNT),
+        minKhoangCach: 1,
+      });
+
+      result.forEach(item => {
+        if (symbolsSetType.has(item.Symbol)) {
+          Type_1.push(item);
+        } else {
+          Type_2.push(item);
+        }
+      });
+
+      const data = {
+        Type_1,
+        Type_2,
+        time_analysis: getTimeGMT7(),
+      };
+
+      await Redis.saveAnalysis(data);
+      // console.log(`[JOB ${process.pid}] Analysis saved: Type_1=${Type_1.length}, Type_2=${Type_2.length}`);
     } catch (error) {
-        console.error(`[JOB ${process.pid}] MongoDB connection failed:`, error.message);
-        return;
+      console.error(`[JOB ${process.pid}] Analysis error:`, error.message);
+    } finally {
+      isRunning = false;
     }
-const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 500);
-let isRunning = false;
-  // Interval 500ms
-  setInterval(async () => {
-     if (isRunning) return;
-     isRunning = true;
-    let Type_1 = [];
-    let Type_2 = [];
-    // const test = symbolsSetType.has('ABC');
-    const result  = await getAnalysisInTimeWindow(Number(process.env.TIME_SECONDS), {
-      minCount: Number(process.env.MIN_COUNT),
-      minKhoangCach: 1,
-    });
-    result.forEach(item => {
-            if (symbolsSetType.has(item.Symbol)) {
-              Type_1.push(item);
-            } else {
-              Type_2.push(item);
-            }
-          });
-    const data = {
-      Type_1,
-      Type_2,
-      time_analysis: getTimeGMT7(),
-    };
-    await Redis.saveAnalysis(data);
-    isRunning = false;
-  }, interval);
+  };
+
+  // ✅ CHẠY NGAY LẦN ĐẦU
+  await runAnalysis();
+
+  // ✅ SAU ĐÓ MỚI setInterval
+  setInterval(runAnalysis, interval);
 
   console.log(`[JOB ${process.pid}] Save Analysis ready.`);
 }
-
-// Auto-run khi process là ROLE=JOB
 module.exports = startJob;
