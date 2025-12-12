@@ -56,6 +56,120 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
     }
 });
 
+// ===================== UPDATE USER (ADMIN) =====================
+router.put('/account-user/:id', authRequired, async function (req, res) {
+  try {
+    const { id } = req.params;
+
+    // Những field cho phép update
+    const allowFields = ['name', 'email', 'rule', 'actived', 'password', 'username'];
+    const updateData = {};
+
+    for (const key of allowFields) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
+
+    // Normalize username nếu có
+    if (updateData.username) updateData.username = String(updateData.username).toLowerCase().trim();
+    if (updateData.email) updateData.email = String(updateData.email).toLowerCase().trim();
+
+    // Không cho update các field nhạy cảm
+    delete updateData.id_SECRET;
+    delete updateData._id;
+
+    // Check tồn tại user
+    const user = await userLogin.findById(id);
+    if (!user) {
+      return res.status(404).json({ ok: false, message: 'User không tồn tại' });
+    }
+
+    // Check trùng username/email (nếu đổi)
+    if (updateData.username && updateData.username !== user.username) {
+      const existsUsername = await userLogin.findOne({ username: updateData.username, _id: { $ne: id } });
+      if (existsUsername) return res.status(409).json({ ok: false, message: 'username đã tồn tại' });
+    }
+
+    if (updateData.email && updateData.email !== user.email) {
+      const existsEmail = await userLogin.findOne({ email: updateData.email, _id: { $ne: id } });
+      if (existsEmail) return res.status(409).json({ ok: false, message: 'email đã tồn tại' });
+    }
+
+    // Update
+    Object.assign(user, updateData);
+    await user.save();
+
+    return res.json({
+      ok: true,
+      message: 'Cập nhật tài khoản thành công',
+      data: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.rule,
+        fullname: user.name,
+        actived: user.actived,
+        id_SECRET: user.id_SECRET
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi update user:', err);
+    return res.status(500).json({ ok: false, message: 'Lỗi server' });
+  }
+});
+
+
+// ===================== UPDATE ME (SELF) =====================
+router.put('/account-user/me', authRequired, async function (req, res) {
+  try {
+    // Tuỳ authMiddleware của bạn: thường req.user.sub hoặc req.user.username
+    const usernameFromToken = req.user?.sub || req.user?.username;
+    if (!usernameFromToken) {
+      return res.status(401).json({ ok: false, message: 'Token không hợp lệ' });
+    }
+
+    // Field user được phép tự sửa (KHÔNG cho sửa role/actived)
+    const allowFields = ['name', 'email', 'password'];
+    const updateData = {};
+
+    for (const key of allowFields) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
+
+    if (updateData.email) updateData.email = String(updateData.email).toLowerCase().trim();
+    delete updateData.id_SECRET;
+
+    const user = await userLogin.findOne({ username: usernameFromToken });
+    if (!user) return res.status(404).json({ ok: false, message: 'User không tồn tại' });
+
+    // Check trùng email nếu đổi
+    if (updateData.email && updateData.email !== user.email) {
+      const existsEmail = await userLogin.findOne({ email: updateData.email, _id: { $ne: user._id } });
+      if (existsEmail) return res.status(409).json({ ok: false, message: 'email đã tồn tại' });
+    }
+
+    Object.assign(user, updateData);
+    await user.save();
+
+    return res.json({
+      ok: true,
+      message: 'Cập nhật thông tin thành công',
+      data: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.rule,
+        fullname: user.name,
+        actived: user.actived,
+        id_SECRET: user.id_SECRET
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi update me:', err);
+    return res.status(500).json({ ok: false, message: 'Lỗi server' });
+  }
+});
+
+
 
   router.get('/basic', passport.authenticate('basic', { session: false }), function (req, res, next) {
     res.json({ ok: true });
