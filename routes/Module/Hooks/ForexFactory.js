@@ -9,6 +9,7 @@ async function getForexFactoryNews() {
         };
 
         const response = await axios.get(url, { headers });
+        console.log('ForexFactory response status:', response.status);
         // console.log('ForexFactory response status:', response);
         const html = response.data;
 
