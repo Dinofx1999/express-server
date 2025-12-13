@@ -14,6 +14,7 @@ const { startTradeQueue, addTradeJob } = require('../Queue/trade.queue');
 // const e = require('express');
 // const priceBatcher = require('./Connect/bactching');
 // const { time } = require('console');
+let Time_Send;
 const requestCounts = new Map(); // Lưu số lượng request theo client ID
 const MAX_REQUESTS = 10; // Số request tối đa cho mỗi client
 const TIME_WINDOW = 1000;
@@ -404,13 +405,6 @@ function setupWebSocketServer(port) {
                                 console.error("Error in ORDER handler:", error.message);
                                 }
                             break;
-                        case "ping":
-                            if (ws.readyState === WebSocket.OPEN) {
-                                // console.log(Color_Log_Success, "Ping from client:", data[1]);
-                                ws.send(JSON.stringify({type: "pong", Success: 1, message: "", Data: ""}));
-                            }
-                            break;
-                            
                         default:
                             // No-op for unrecognized message types
                             break;
@@ -449,6 +443,7 @@ function setupWebSocketServer(port) {
         server.listen(port, () => {
             // console.log(Color_Log_Success, `WebSocket server đang chạy tại port ${port}`);
             log(colors.green, 'FOREX WS', colors.reset, `WebSocket server đang chạy tại port ${port}`);
+            startAutoBroadcast(wss);
         });
         
         return wss;
@@ -475,7 +470,22 @@ function SaveAll_Info() {
 
 
 
-
+// ============ AUTO BROADCAST MỖI 1 GIÂY ============
+function startAutoBroadcast(wss) {
+    setInterval(() => {
+        // Gửi ping đến TẤT CẢ clients đang online
+        Client_Connected.forEach(client => {
+            if (client.ws.readyState === WebSocket.OPEN) {
+                client.ws.send(JSON.stringify({
+                    type: "Ping", 
+                    Success: 1, 
+                    message: "", 
+                    Data: ""
+                }));
+            }
+        });
+    }, 1000); // 1 giây
+}
 
 
 module.exports = setupWebSocketServer;
