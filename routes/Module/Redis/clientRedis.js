@@ -116,11 +116,76 @@ class RedisManager {
         
         return keys;
     }
-
     async saveBrokerData(broker, data) {
-        const key = `BROKER:${broker}`;
-        await this.client.set(key, JSON.stringify(data));
+    const key = `BROKER:${broker}`;
+    
+    try {
+        const expectedTotal = parseInt(data.totalsymbol || 0);
+        
+        // Lấy total hiện tại (chỉ parse field totalsymbol, không parse toàn bộ JSON)
+        const existingData = await this.client.get(key);
+        
+        if (!existingData) {
+            await this.client.set(key, JSON.stringify(data));
+            return { success: true, action: 'created' };
+        }
+        
+        // Parse nhanh chỉ để lấy totalsymbol
+        const totalMatch = existingData.match(/"totalsymbol"\s*:\s*"(\d+)"/);
+        const currentTotal = totalMatch ? parseInt(totalMatch[1]) : 0;
+        
+        // RESET nếu server > client
+        if (currentTotal > expectedTotal) {
+            await this.client.set(key, JSON.stringify(data));
+            return { success: true, action: 'reset', total: expectedTotal };
+        }
+        
+        // Parse đầy đủ để merge
+        const parsedExisting = JSON.parse(existingData);
+        
+        // Update metadata nhanh
+        Object.assign(parsedExisting, {
+            port: data.port,
+            index: data.index,
+            version: data.version,
+            typeaccount: data.typeaccount,
+            timecurent: data.timecurent,
+            auto_trade: data.auto_trade,
+            status: data.status,
+            timeUpdated: data.timeUpdated
+        });
+        
+        // Merge symbols - dùng Map để tăng tốc lookup
+        const symbolMap = new Map(
+            parsedExisting.OHLC_Symbols.map(s => [s.symbol, s])
+        );
+        
+        let stats = { added: 0, updated: 0 };
+        
+        data.OHLC_Symbols?.forEach(newSymbol => {
+            if (symbolMap.has(newSymbol.symbol)) {
+                stats.updated++;
+            } else {
+                stats.added++;
+            }
+            symbolMap.set(newSymbol.symbol, newSymbol);
+        });
+        
+        parsedExisting.OHLC_Symbols = Array.from(symbolMap.values());
+        parsedExisting.totalsymbol = symbolMap.size.toString();
+        
+        await this.client.set(key, JSON.stringify(parsedExisting));
+        
+        return { success: true, action: 'merged', ...stats, total: symbolMap.size };
+        
+    } catch (error) {
+        throw error;
     }
+}
+    // async saveBrokerData(broker, data) {
+    //     const key = `BROKER:${broker}`;
+    //     await this.client.set(key, JSON.stringify(data));
+    // }
 
     async saveConfigAdmin(data) {
         const key = `CONFIG`;
