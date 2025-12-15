@@ -377,6 +377,7 @@ function setupWebSocketServer(port) {
                                 }else{
                                     mes = `Fail`;
                                 }
+                                if(Ticket === -1) mes = "Vào Lệnh Không Thành Công ❌";
                                 trade.Message = mes;
 
                                 if (isSuccess) {
