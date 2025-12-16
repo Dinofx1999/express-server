@@ -483,7 +483,7 @@ function startAutoBroadcast(wss) {
                 }));
             }
         });
-    }, 1000); // 1 giây
+    }, 300); // 1 giây
 }
 
 
