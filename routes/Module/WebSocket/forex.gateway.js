@@ -335,7 +335,8 @@ function setupWebSocketServer(port) {
                                 if (!rawData.broker || !rawData.index) {
                                     throw new Error('Invalid broker data structure');
                                 }
-                                const save = await Redis.saveBrokerData(formatString(rawData.broker) , rawData);
+                                await Redis.saveBrokerData(formatString(rawData.broker).toUpperCase(), rawData);
+
                             } catch (error) {
                                 console.error('Error saving broker data:', error.message);
                             }

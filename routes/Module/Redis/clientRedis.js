@@ -473,6 +473,37 @@ class RedisManager {
       return { success: false, message: e.message };
     }
   }
+async getAllUniqueSymbols() {
+  try {
+    // Lấy toàn bộ SYMBOLS set của các broker
+    const symbolSetKeys = await this.scanKeys('BROKER:*:SYMBOLS');
+    if (symbolSetKeys.length === 0) return [];
+
+    const unique = new Set();
+
+    // Pipeline để SMEMBERS nhanh
+    const p = this.client.pipeline();
+    for (const key of symbolSetKeys) {
+      p.smembers(key);
+    }
+
+    const res = await p.exec();
+
+    for (const r of res) {
+      const symbols = r?.[1];
+      if (Array.isArray(symbols)) {
+        for (const s of symbols) {
+          if (s) unique.add(s);
+        }
+      }
+    }
+
+    return Array.from(unique);
+  } catch (error) {
+    console.error('getAllUniqueSymbols error:', error);
+    return [];
+  }
+}
 
   async clearAllAppData() {
     const patterns = ['BROKER:*:META', 'BROKER:*:SYMBOLS', 'BROKER:*:SYM:*', 'BROKER:*', 'Analysis:*', 'symbol:*'];
