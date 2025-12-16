@@ -5,8 +5,7 @@ const zlib = require('zlib');
 const { log, colors } = require('../Helpers/Log');
 
 // ===================== COMPRESSION HELPERS =====================
-// Magic header để phân biệt dữ liệu nén vs JSON string cũ
-const MAGIC = Buffer.from('BR1'); // 3 bytes
+const MAGIC = Buffer.from('BR1'); // phân biệt dữ liệu nén
 
 function packJSON(obj) {
   const jsonBuf = Buffer.from(JSON.stringify(obj));
@@ -16,22 +15,27 @@ function packJSON(obj) {
   return Buffer.concat([MAGIC, compressed]);
 }
 
-function unpackJSON(buf) {
-  // 1) New format: MAGIC + brotli
-  if (Buffer.isBuffer(buf) && buf.length > 3 && buf.subarray(0, 3).equals(MAGIC)) {
-    const compressed = buf.subarray(3);
+function unpackJSON(bufOrStr) {
+  // New format: MAGIC + brotli
+  if (Buffer.isBuffer(bufOrStr) && bufOrStr.length > 3 && bufOrStr.subarray(0, 3).equals(MAGIC)) {
+    const compressed = bufOrStr.subarray(3);
     const raw = zlib.brotliDecompressSync(compressed);
     return JSON.parse(raw.toString());
   }
-
-  // 2) Old format: plain JSON string stored in Redis
-  const text = Buffer.isBuffer(buf) ? buf.toString() : String(buf);
+  // Old format: plain JSON string
+  const text = Buffer.isBuffer(bufOrStr) ? bufOrStr.toString() : String(bufOrStr);
   return JSON.parse(text);
 }
 
+// ===================== KEY BUILDERS =====================
+const kMeta = (broker) => `BROKER:${broker}:META`;              // STRING (nén)
+const kSymSet = (broker) => `BROKER:${broker}:SYMBOLS`;         // SET
+const kSym = (broker, symbol) => `BROKER:${broker}:SYM:${symbol}`; // STRING (nén)
+const kLegacy = (broker) => `BROKER:${broker}`;                 // STRING (optional legacy)
+
 class RedisManager {
   constructor() {
-    this.messageHandlers = new Map(); // channel -> handler
+    this.messageHandlers = new Map();
     this.isSubscriberSetup = false;
 
     const redisConfig = {
@@ -39,17 +43,15 @@ class RedisManager {
       port: 6379,
       db: 0,
 
-      // ⚡ hiệu năng
+      // ⚡ throughput
       enableAutoPipelining: true,
+      autoPipeliningIgnoredCommands: ['subscribe', 'psubscribe', 'unsubscribe', 'punsubscribe'],
       maxRetriesPerRequest: null,
       keepAlive: 10000,
       retryStrategy: (times) => Math.min(times * 50, 2000),
     };
 
-    // ✅ 1 client chính
     this.client = new Redis(redisConfig);
-
-    // ✅ Pub/Sub phải tách connection
     this.publisherClient = this.client.duplicate();
     this.subscriberClient = this.client.duplicate();
 
@@ -57,25 +59,15 @@ class RedisManager {
   }
 
   setupEventHandlers() {
-    this.publisherClient.on('connect', () => {
-      log(colors.green, 'REDIS', colors.reset, 'Publisher connected');
-    });
-    this.publisherClient.on('error', (err) => {
-      console.error('Redis Publisher Error:', err);
-    });
+    this.publisherClient.on('connect', () => log(colors.green, 'REDIS', colors.reset, 'Publisher connected'));
+    this.publisherClient.on('error', (err) => console.error('Redis Publisher Error:', err));
 
-    this.subscriberClient.on('connect', () => {
-      log(colors.green, 'REDIS', colors.reset, 'Subscriber connected');
-    });
-    this.subscriberClient.on('error', (err) => {
-      console.error('Redis Subscriber Error:', err);
-    });
+    this.subscriberClient.on('connect', () => log(colors.green, 'REDIS', colors.reset, 'Subscriber connected'));
+    this.subscriberClient.on('error', (err) => console.error('Redis Subscriber Error:', err));
 
-    // ✅ message handler 1 lần duy nhất
     this.subscriberClient.on('message', (channel, message) => {
       const handler = this.messageHandlers.get(channel);
       if (!handler) return;
-
       try {
         handler(this.tryParseJSON(message));
       } catch (error) {
@@ -84,6 +76,10 @@ class RedisManager {
     });
 
     this.isSubscriberSetup = true;
+  }
+
+  tryParseJSON(message) {
+    try { return JSON.parse(message); } catch { return message; }
   }
 
   subscribe(channel, callback) {
@@ -107,286 +103,282 @@ class RedisManager {
   }
 
   async publish(channel, message) {
-    try {
-      const payload = typeof message === 'object' ? JSON.stringify(message) : message;
-      return await this.publisherClient.publish(channel, payload);
-    } catch (error) {
-      console.error('Publish error:', error);
-      throw error;
-    }
+    const payload = typeof message === 'object' ? JSON.stringify(message) : message;
+    return this.publisherClient.publish(channel, payload);
   }
 
-  tryParseJSON(message) {
-    try {
-      return JSON.parse(message);
-    } catch {
-      return message;
-    }
-  }
-
-  // ===================== SCAN (FAST + SAFE) =====================
+  // ===================== SCAN (FAST) =====================
   async scanKeys(pattern) {
     const keys = [];
     const stream = this.client.scanStream({ match: pattern, count: 2000 });
-
     return await new Promise((resolve, reject) => {
-      stream.on('data', (resultKeys) => {
-        for (const k of resultKeys) keys.push(k);
-      });
+      stream.on('data', (resultKeys) => { for (const k of resultKeys) keys.push(k); });
       stream.on('end', () => resolve(keys));
       stream.on('error', reject);
     });
   }
 
-  // ===================== INTERNAL BROKER READ/WRITE =====================
-  async _getBrokerObjectByKey(key) {
-    const buf = await this.client.getBuffer(key);
-    if (!buf) return null;
-    try {
-      return unpackJSON(buf);
-    } catch (e) {
-      // fallback: nếu là string plain nhưng getBuffer vẫn trả Buffer
-      try {
-        return JSON.parse(buf.toString());
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  async _setBrokerObjectByKey(key, obj) {
-    const payload = packJSON(obj);
-    await this.client.set(key, payload);
-  }
-
-  // ===================== FAST SAVE (FULL SNAPSHOT) =====================
+  // ===================== SAVE: BATCH FRIENDLY (NO HASH) =====================
   /**
-   * FULL snapshot => SET thẳng (không merge)
-   * Không HASH.
-   * Có nén Brotli.
+   * saveBrokerData(broker, data)
+   * - data.OHLC_Symbols có thể là 1 batch (một phần symbols)
+   * - Lưu từng symbol thành key riêng (STRING) + set danh sách symbols (SET)
+   * - Lưu meta (STRING) nhỏ
    */
   async saveBrokerData(broker, data) {
-    const key = `BROKER:${broker}`;
+    const brokerName = String(broker || '').trim();
+    if (!brokerName) throw new Error('broker is required');
 
-    try {
-      await this._setBrokerObjectByKey(key, data);
+    const symbols = Array.isArray(data?.OHLC_Symbols) ? data.OHLC_Symbols : [];
+    const expectedTotal = parseInt(data?.totalsymbol || 0, 10) || 0;
 
-      return {
-        success: true,
-        action: 'set_full',
-        total: data?.OHLC_Symbols?.length || parseInt(data?.totalsymbol || 0, 10) || 0,
-      };
-    } catch (error) {
-      throw error;
-    }
-  }
+    // meta nhỏ (giữ field giống bạn)
+    const meta = {
+      port: data?.port,
+      index: data?.index,
+      broker: data?.broker ?? brokerName,
+      broker_: data?.broker_ ?? String(data?.broker ?? brokerName).replace(/\s+/g, '-'),
+      version: data?.version,
+      typeaccount: data?.typeaccount,
+      timecurent: data?.timecurent,
+      auto_trade: data?.auto_trade,
+      status: (data?.status !== undefined ? String(data.status) : 'True').trim(),
+      timeUpdated: data?.timeUpdated,
+      totalsymbol: expectedTotal ? String(expectedTotal) : undefined,
+    };
 
-  // (giữ như bạn – nhưng không khuyên dùng cho full snapshot)
-  async saveBrokerData_(data, port) {
-    try {
-      if (!data.Broker) {
-        throw new Error('Invalid broker data: Missing Broker name');
+    const p = this.client.pipeline();
+
+    // 1) set meta
+    p.set(kMeta(brokerName), packJSON(meta));
+
+    // 2) add symbols + save per-symbol
+    if (symbols.length) {
+      // SADD all symbols (one command)
+      const symNames = [];
+      for (const s of symbols) {
+        if (s && s.symbol) symNames.push(String(s.symbol));
       }
+      if (symNames.length) p.sadd(kSymSet(brokerName), ...symNames);
 
-      const brokerKey = `BROKER:${data.Broker}`;
-      const now = new Date();
-      const formattedDate =
-        `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ` +
-        `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-
-      const brokerData = {
-        ...data,
-        port: port,
-        lastUpdated: formattedDate,
-      };
-
-      const pipeline = this.client.pipeline();
-      // ở hàm này bạn đang lưu string JSON (legacy). Vẫn ok.
-      pipeline.set(brokerKey, JSON.stringify(brokerData));
-
-      if (data.Infosymbol && Array.isArray(data.Infosymbol)) {
-        for (const symbol of data.Infosymbol) {
-          const symbolKey = `symbol:${data.Broker}:${symbol.Symbol}`;
-          pipeline.set(
-            symbolKey,
-            JSON.stringify({
-              ...symbol,
-              broker: data.Broker,
-              lastUpdated: brokerData.lastUpdated,
-            })
-          );
+      // SET each symbol (chunk to avoid huge packet)
+      const CHUNK = 200;
+      for (let i = 0; i < symbols.length; i += CHUNK) {
+        const slice = symbols.slice(i, i + CHUNK);
+        for (const s of slice) {
+          if (!s || !s.symbol) continue;
+          p.set(kSym(brokerName, String(s.symbol)), packJSON(s));
         }
       }
-
-      await pipeline.exec();
-      return true;
-    } catch (error) {
-      console.error('Error saving broker data:', error);
-      return false;
     }
-  }
 
-  // ===================== CONFIG =====================
-  async saveConfigAdmin(data) {
-    const key = `CONFIG`;
-    await this.client.set(key, JSON.stringify(data));
-  }
-
-  async getConfigAdmin() {
-    const key = `CONFIG`;
-    const raw = await this.client.get(key);
-    if (raw) {
-      try {
-        return JSON.parse(raw);
-      } catch (error) {
-        console.error('Error parsing config admin data:', error);
-      }
+    // 3) optionally store legacy full snapshot if client really sends full (rare in batch mode)
+    // Nếu bạn muốn giữ tương thích API cũ “BROKER:<name>” full JSON:
+    // chỉ lưu khi symbols.length >= expectedTotal (coi như full)
+    if (expectedTotal > 0 && symbols.length >= expectedTotal) {
+      p.set(kLegacy(brokerName), packJSON(data));
     }
-    return null;
+
+    await p.exec();
+
+    return {
+      success: true,
+      action: 'batch_saved',
+      batchSymbols: symbols.length,
+      expectedTotal,
+    };
   }
 
-  // ===================== READ BROKERS =====================
-  async getAllBrokers_2() {
-    const keys = await this.scanKeys('BROKER:*');
-    const result = {};
-    if (keys.length === 0) return result;
-
-    const bufs = await this.client.mgetBuffer(keys);
-
-    keys.forEach((key, index) => {
-      const buf = bufs[index];
-      if (!buf) return;
-
-      let data = null;
-      try {
-        data = unpackJSON(buf);
-      } catch {
-        try {
-          data = JSON.parse(buf.toString());
-        } catch {
-          data = null;
-        }
-      }
-
-      if (data) result[key.replace('BROKER:', '')] = data;
-    });
-
-    return result;
-  }
-
-  async getAllBrokers() {
-    try {
-      const keys = await this.scanKeys('BROKER:*');
-      if (keys.length === 0) return [];
-
-      const bufs = await this.client.mgetBuffer(keys);
-
-      const validBrokers = bufs
-        .map((buf) => {
-          if (!buf) return null;
-          try {
-            return unpackJSON(buf);
-          } catch {
-            try {
-              return JSON.parse(buf.toString());
-            } catch {
-              return null;
-            }
-          }
-        })
-        .filter((b) => b !== null);
-
-      return validBrokers.sort((a, b) => {
-        const indexA = parseInt(a.index, 10) || 0;
-        const indexB = parseInt(b.index, 10) || 0;
-        return indexA - indexB;
-      });
-    } catch (error) {
-      console.error('Error getting brokers from Redis:', error);
-      return [];
-    }
-  }
-
+  // ===================== GET: META + RECONSTRUCT SYMBOLS =====================
   async getBroker(brokerName) {
     try {
       if (!brokerName) throw new Error('Broker name is required');
-      const brokerKey = `BROKER:${brokerName}`;
-      return await this._getBrokerObjectByKey(brokerKey);
+
+      const metaBuf = await this.client.getBuffer(kMeta(brokerName));
+      if (!metaBuf) return null;
+
+      const meta = unpackJSON(metaBuf);
+
+      const syms = await this.client.smembers(kSymSet(brokerName));
+      if (!syms || syms.length === 0) {
+        return { ...meta, OHLC_Symbols: [], totalsymbol: meta.totalsymbol || '0' };
+      }
+
+      // MGET by chunks
+      const OHLC_Symbols = [];
+      const CHUNK = 500;
+      for (let i = 0; i < syms.length; i += CHUNK) {
+        const part = syms.slice(i, i + CHUNK);
+        const keys = part.map((s) => kSym(brokerName, s));
+        const bufs = await this.client.mgetBuffer(keys);
+
+        for (const b of bufs) {
+          if (!b) continue;
+          try { OHLC_Symbols.push(unpackJSON(b)); } catch {}
+        }
+      }
+
+      return {
+        ...meta,
+        OHLC_Symbols,
+        totalsymbol: meta.totalsymbol || String(syms.length),
+      };
     } catch (error) {
       console.error(`Error getting broker '${brokerName}' from Redis:`, error);
       return null;
     }
   }
 
+  // ✅ nhanh: chỉ meta để biết broker nào đang lỗi/reset
   async getBrokerResetting() {
-    const brokers = await this.getAllBrokers();
-    return brokers
-      .filter((broker) => String(broker.status || '').trim() !== 'True')
-      .sort((a, b) => Number(a.index) - Number(b.index));
+    const metaKeys = await this.scanKeys('BROKER:*:META');
+    if (metaKeys.length === 0) return [];
+
+    const p = this.client.pipeline();
+    for (const mk of metaKeys) p.getBuffer(mk);
+    const res = await p.exec();
+
+    const metas = res
+      .map(r => r?.[1])
+      .filter(Boolean)
+      .map(buf => {
+        try { return unpackJSON(buf); } catch { return null; }
+      })
+      .filter(Boolean);
+
+    return metas
+      .filter(m => String(m.status || '').trim() !== 'True')
+      .sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+  }
+
+  // ⚠️ nặng hơn: reconstruct full brokers (dùng cho UI)
+  async getAllBrokers() {
+    try {
+      const metaKeys = await this.scanKeys('BROKER:*:META');
+      if (metaKeys.length === 0) return [];
+
+      // parse metas
+      const p = this.client.pipeline();
+      for (const mk of metaKeys) p.getBuffer(mk);
+      const res = await p.exec();
+
+      const metas = res
+        .map(r => r?.[1])
+        .filter(Boolean)
+        .map(buf => {
+          try { return unpackJSON(buf); } catch { return null; }
+        })
+        .filter(Boolean);
+
+      // reconstruct each broker symbols
+      const brokers = [];
+      for (const meta of metas) {
+        const name = meta.broker || meta.broker_ || '';
+        if (!name) continue;
+
+        const syms = await this.client.smembers(kSymSet(name));
+        const OHLC_Symbols = [];
+        if (syms && syms.length) {
+          const CHUNK = 500;
+          for (let i = 0; i < syms.length; i += CHUNK) {
+            const part = syms.slice(i, i + CHUNK);
+            const keys = part.map((s) => kSym(name, s));
+            const bufs = await this.client.mgetBuffer(keys);
+            for (const b of bufs) {
+              if (!b) continue;
+              try { OHLC_Symbols.push(unpackJSON(b)); } catch {}
+            }
+          }
+        }
+
+        brokers.push({
+          ...meta,
+          OHLC_Symbols,
+          totalsymbol: meta.totalsymbol || String(syms?.length || 0),
+        });
+      }
+
+      return brokers.sort((a, b) => (parseInt(a.index, 10) || 0) - (parseInt(b.index, 10) || 0));
+    } catch (error) {
+      console.error('Error getting brokers from Redis:', error);
+      return [];
+    }
+  }
+
+  async getAllBrokers_2() {
+    const arr = await this.getAllBrokers();
+    const obj = {};
+    for (const b of arr) obj[b.broker] = b;
+    return obj;
   }
 
   async getAllUniqueSymbols() {
     try {
       const brokers = await this.getAllBrokers();
-      const uniqueSymbols = new Set();
-
-      brokers.forEach((broker) => {
-        if (broker.OHLC_Symbols && Array.isArray(broker.OHLC_Symbols)) {
-          broker.OHLC_Symbols.forEach((symbolData) => {
-            if (symbolData.symbol) uniqueSymbols.add(symbolData.symbol);
-          });
+      const unique = new Set();
+      for (const b of brokers) {
+        if (Array.isArray(b.OHLC_Symbols)) {
+          for (const s of b.OHLC_Symbols) if (s?.symbol) unique.add(s.symbol);
         }
-      });
-
-      return Array.from(uniqueSymbols);
-    } catch (error) {
-      console.error('Error getting unique symbols from Redis:', error);
+      }
+      return Array.from(unique);
+    } catch (e) {
+      console.error('Error getting unique symbols:', e);
       return [];
     }
   }
 
+  // ✅ lookup 1 symbol: scan META rồi GET key per symbol (không cần load full)
   async getSymbolDetails(symbolName) {
     try {
-      const brokerKeys = await this.scanKeys('BROKER:*');
-      if (brokerKeys.length === 0) return [];
+      const metaKeys = await this.scanKeys('BROKER:*:META');
+      if (metaKeys.length === 0) return [];
 
-      const bufs = await this.client.mgetBuffer(brokerKeys);
-      const symbolDetails = [];
+      const p = this.client.pipeline();
+      for (const mk of metaKeys) p.getBuffer(mk);
+      const res = await p.exec();
 
-      bufs.forEach((buf) => {
-        if (!buf) return;
+      const metas = res
+        .map(r => r?.[1])
+        .filter(Boolean)
+        .map(buf => { try { return unpackJSON(buf); } catch { return null; } })
+        .filter(Boolean);
 
-        let broker = null;
-        try {
-          broker = unpackJSON(buf);
-        } catch {
-          try {
-            broker = JSON.parse(buf.toString());
-          } catch {
-            broker = null;
-          }
-        }
-        if (!broker) return;
+      const out = [];
+      const p2 = this.client.pipeline();
 
-        if (broker.OHLC_Symbols && Array.isArray(broker.OHLC_Symbols)) {
-          const symbolInfo = broker.OHLC_Symbols.find(
-            (sym) => sym.symbol === symbolName && sym.trade === 'TRUE' && broker.status === 'True'
-          );
-          if (symbolInfo) {
-            symbolDetails.push({
-              Broker: broker.broker,
-              Broker_: broker.broker_,
-              Status: broker.status,
-              Index: broker.index,
-              ...symbolInfo,
-            });
-          }
-        }
-      });
+      // hứng kết quả theo thứ tự
+      const validMetas = [];
+      for (const meta of metas) {
+        if (meta.status !== 'True') continue;
+        validMetas.push(meta);
+        p2.getBuffer(kSym(meta.broker, symbolName));
+      }
 
-      return symbolDetails.sort((a, b) => parseFloat(a.Index || 0) - parseFloat(b.Index || 0));
-    } catch (error) {
-      console.error(`Error getting symbol details for ${symbolName}:`, error);
+      const res2 = await p2.exec();
+
+      for (let i = 0; i < validMetas.length; i++) {
+        const meta = validMetas[i];
+        const buf = res2[i]?.[1];
+        if (!buf) continue;
+
+        let sym = null;
+        try { sym = unpackJSON(buf); } catch { sym = null; }
+        if (!sym) continue;
+        if (sym.trade !== 'TRUE') continue;
+
+        out.push({
+          Broker: meta.broker,
+          Broker_: meta.broker_,
+          Status: meta.status,
+          Index: meta.index,
+          ...sym,
+        });
+      }
+
+      return out.sort((a, b) => parseFloat(a.Index || 0) - parseFloat(b.Index || 0));
+    } catch (e) {
+      console.error(`Error getSymbolDetails(${symbolName}):`, e);
       return [];
     }
   }
@@ -395,44 +387,46 @@ class RedisManager {
     if (!symbols || symbols.length === 0) return new Map();
 
     try {
-      const brokerKeys = await this.scanKeys('BROKER:*');
-      if (brokerKeys.length === 0) return new Map();
+      const metaKeys = await this.scanKeys('BROKER:*:META');
+      if (metaKeys.length === 0) return new Map();
 
-      const bufs = await this.client.mgetBuffer(brokerKeys);
-      const brokers = [];
+      const p = this.client.pipeline();
+      for (const mk of metaKeys) p.getBuffer(mk);
+      const res = await p.exec();
 
-      bufs.forEach((buf) => {
-        if (!buf) return;
-        try {
-          brokers.push(unpackJSON(buf));
-        } catch {
-          try {
-            brokers.push(JSON.parse(buf.toString()));
-          } catch {}
-        }
-      });
+      const metas = res
+        .map(r => r?.[1])
+        .filter(Boolean)
+        .map(buf => { try { return unpackJSON(buf); } catch { return null; } })
+        .filter(Boolean)
+        .filter(m => m.status === 'True');
 
-      const symbolSet = new Set(symbols);
       const resultMap = new Map();
-      for (const sym of symbols) resultMap.set(sym, []);
+      for (const s of symbols) resultMap.set(s, []);
 
-      for (const broker of brokers) {
-        if (!broker?.OHLC_Symbols || !Array.isArray(broker.OHLC_Symbols)) continue;
-        if (broker.status !== 'True') continue;
+      // pipeline: mỗi broker MGETBuffer các symbol keys
+      for (const meta of metas) {
+        const keys = symbols.map(sym => kSym(meta.broker, sym));
+        const bufs = await this.client.mgetBuffer(keys);
 
-        for (const symbolInfo of broker.OHLC_Symbols) {
-          const sym = symbolInfo.symbol;
-          if (!symbolSet.has(sym)) continue;
-          if (symbolInfo.trade !== 'TRUE') continue;
+        for (let i = 0; i < symbols.length; i++) {
+          const symName = symbols[i];
+          const buf = bufs[i];
+          if (!buf) continue;
 
-          resultMap.get(sym).push({
-            Broker: broker.broker,
-            Broker_: broker.broker_,
-            Status: broker.status,
-            Index: broker.index,
-            Auto_Trade: broker.auto_trade,
-            Typeaccount: broker.typeaccount,
-            ...symbolInfo,
+          let sym = null;
+          try { sym = unpackJSON(buf); } catch { sym = null; }
+          if (!sym) continue;
+          if (sym.trade !== 'TRUE') continue;
+
+          resultMap.get(symName).push({
+            Broker: meta.broker,
+            Broker_: meta.broker_,
+            Status: meta.status,
+            Index: meta.index,
+            Auto_Trade: meta.auto_trade,
+            Typeaccount: meta.typeaccount,
+            ...sym,
           });
         }
       }
@@ -442,267 +436,232 @@ class RedisManager {
       }
 
       return resultMap;
-    } catch (error) {
-      console.error('Error in getMultipleSymbolDetails:', error);
+    } catch (e) {
+      console.error('Error in getMultipleSymbolDetails:', e);
       return new Map();
+    }
+  }
+
+  async getSymbol(symbol) {
+    try {
+      if (!symbol) throw new Error('Symbol is required');
+
+      const metaKeys = await this.scanKeys('BROKER:*:META');
+      if (metaKeys.length === 0) return null;
+
+      const p = this.client.pipeline();
+      for (const mk of metaKeys) p.getBuffer(mk);
+      const res = await p.exec();
+
+      const metas = res
+        .map(r => r?.[1])
+        .filter(Boolean)
+        .map(buf => { try { return unpackJSON(buf); } catch { return null; } })
+        .filter(Boolean)
+        .filter(m => m.status !== 'Disconnect');
+
+      let best = null;
+      let bestIndex = Number.MAX_SAFE_INTEGER;
+
+      for (const meta of metas) {
+        const brokerIndex = parseInt(meta.index, 10);
+        if (isNaN(brokerIndex)) continue;
+
+        const buf = await this.client.getBuffer(kSym(meta.broker, symbol));
+        if (!buf) continue;
+
+        let sym = null;
+        try { sym = unpackJSON(buf); } catch { sym = null; }
+        if (!sym) continue;
+        if (sym.trade !== 'TRUE') continue;
+
+        if (brokerIndex < bestIndex) {
+          bestIndex = brokerIndex;
+          best = { ...sym, Broker: meta.broker, BrokerIndex: meta.index };
+        }
+      }
+
+      return best;
+    } catch (e) {
+      console.error('Error getSymbol:', e);
+      return null;
     }
   }
 
   async findBrokerByIndex(index) {
     try {
-      if (index === undefined || index === null) throw new Error('index is required');
-      const brokers = await this.getAllBrokers();
-      const targetIndex = String(index);
-      return brokers.find((broker) => String(broker.index) === targetIndex) || null;
-    } catch (error) {
-      console.error(`Error finding broker with index '${index}':`, error);
+      const metas = await this.getBrokerResetting(); // meta list already sorted
+      const target = String(index);
+      return metas.find(m => String(m.index) === target) || null;
+    } catch (e) {
+      console.error('Error findBrokerByIndex:', e);
       return null;
     }
   }
 
   async updateBrokerStatus(broker, newStatus) {
     try {
-      const key = `BROKER:${broker}`;
-      const data = await this._getBrokerObjectByKey(key);
-      if (!data) return null;
+      const metaBuf = await this.client.getBuffer(kMeta(broker));
+      if (!metaBuf) return null;
 
-      data.status = newStatus;
-      data.timeUpdated = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      await this._setBrokerObjectByKey(key, data);
+      const meta = unpackJSON(metaBuf);
+      meta.status = String(newStatus);
+      meta.timeUpdated = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
-      return data;
-    } catch (error) {
-      console.error('Lỗi update status:', error.message);
-      throw error;
-    }
-  }
-
-  async getSymbol(symbol) {
-    try {
-      if (!symbol) throw new Error(symbol + ': Symbol is required');
-
-      const brokers = await this.getAllBrokers();
-      let result = null;
-      let minIndex = Number.MAX_SAFE_INTEGER;
-
-      for (const broker of brokers) {
-        const brokerIndex = parseInt(broker.index, 10);
-        if (!broker.OHLC_Symbols || isNaN(brokerIndex)) continue;
-
-        const symbolInfo = broker.OHLC_Symbols.find(
-          (info) => info.symbol === symbol && info.trade === 'TRUE' && broker.status !== 'Disconnect'
-        );
-
-        if (symbolInfo && brokerIndex < minIndex) {
-          minIndex = brokerIndex;
-          result = {
-            ...symbolInfo,
-            Broker: broker.broker,
-            BrokerIndex: broker.index,
-          };
-        }
-      }
-
-      return result;
-    } catch (error) {
-      console.error('Lỗi hàm getSymbol trong clientRedis.js', error);
-      return null;
+      await this.client.set(kMeta(broker), packJSON(meta));
+      return meta;
+    } catch (e) {
+      console.error('Lỗi update status:', e?.message || e);
+      throw e;
     }
   }
 
   async Broker_names() {
-    try {
-      const data = await this.getAllBrokers();
-      const brokers = data.map((broker) => {
-        const { OHLC_Symbols, ...info } = broker;
-        return info;
-      });
-      return brokers;
-    } catch (error) {
-      console.error('Lỗi hàm Broker_names trong clientRedis.js', error);
-      return [];
-    }
+    // chỉ meta cho nhẹ
+    const list = await this.getBrokerResetting(); // meta list (status != True)
+    return list.map(({ OHLC_Symbols, ...info }) => info);
   }
 
+  // ===================== CONFIG / ANALYSIS (GIỮ NHƯ CŨ) =====================
+  async saveConfigAdmin(data) {
+    await this.client.set('CONFIG', JSON.stringify(data));
+  }
+  async getConfigAdmin() {
+    const raw = await this.client.get('CONFIG');
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+  }
+
+  async saveAnalysis(data) {
+    await this.client.set('Analysis', JSON.stringify(data));
+  }
+
+  async getAnalysis() {
+    const raw = await this.client.get('Analysis');
+    if (!raw) return { Type_1: [], Type_2: [], time_analysis: null };
+    try { return JSON.parse(raw); } catch { return { Type_1: [], Type_2: [], time_analysis: null }; }
+  }
+
+  // ===================== DELETE / CLEAR =====================
   async deleteBroker(brokerName) {
     try {
       if (!brokerName) throw new Error('Broker name is required');
 
-      const brokerKey = `BROKER:${brokerName}`;
-      const brokerExists = await this.client.exists(brokerKey);
-      if (!brokerExists) return { success: false, message: `Broker "${brokerName}" does not exist` };
+      const syms = await this.client.smembers(kSymSet(brokerName));
+      const p = this.client.pipeline();
 
-      const symbolKeys = await this.scanKeys(`symbol:${brokerName}:*`);
-      const pipeline = this.client.pipeline();
-      symbolKeys.forEach((key) => pipeline.del(key));
-      pipeline.del(brokerKey);
-      await pipeline.exec();
+      // delete symbols
+      if (syms && syms.length) {
+        for (const s of syms) p.del(kSym(brokerName, s));
+      }
 
-      return { success: true, message: `Deleted broker "${brokerName}" and related symbols` };
-    } catch (error) {
-      console.error(`Error deleting broker ${brokerName}:`, error);
-      return { success: false, message: `Error deleting broker: ${error.message}` };
+      p.del(kSymSet(brokerName));
+      p.del(kMeta(brokerName));
+      p.del(kLegacy(brokerName)); // nếu có
+
+      // dọn legacy symbol:* nếu bạn còn dùng nơi khác
+      const legacySymbolKeys = await this.scanKeys(`symbol:${brokerName}:*`);
+      for (const k of legacySymbolKeys) p.del(k);
+
+      await p.exec();
+      return { success: true, message: `Deleted broker "${brokerName}" and related data` };
+    } catch (e) {
+      console.error('Error deleting broker:', e);
+      return { success: false, message: e.message };
     }
   }
 
   async clearData() {
-    try {
-      await this.client.flushall();
-      log(colors.green, 'REDIS', colors.reset, 'Redis data cleared successfully.');
-    } catch (error) {
-      log(colors.red, 'REDIS', colors.reset, 'Error clearing Redis data:', error);
+    await this.client.flushall();
+    log(colors.green, 'REDIS', colors.reset, 'Redis data cleared successfully.');
+  }
+
+  async clearAllAppData() {
+    const patterns = ['BROKER:*:META', 'BROKER:*:SYMBOLS', 'BROKER:*:SYM:*', 'BROKER:*', 'symbol:*', 'Analysis:*'];
+    let totalDeleted = 0;
+
+    for (const pattern of patterns) {
+      const keys = await this.scanKeys(pattern);
+      if (!keys.length) continue;
+
+      const batchSize = 2000;
+      for (let i = 0; i < keys.length; i += batchSize) {
+        const batch = keys.slice(i, i + batchSize);
+        await this.client.del(...batch);
+      }
+
+      totalDeleted += keys.length;
+      log(colors.yellow, 'REDIS', colors.reset, `Deleted ${keys.length} keys matching "${pattern}"`);
     }
+
+    log(colors.green, 'REDIS', colors.reset, `✅ Cleared ${totalDeleted} keys total.`);
+    return { success: true, totalDeleted };
   }
 
   async clearAllBroker() {
     return this.clearAllAppData();
   }
 
-  async clearAllAppData() {
-    try {
-      const patterns = ['BROKER:*', 'symbol:*', 'Analysis:*'];
-      let totalDeleted = 0;
-
-      for (const pattern of patterns) {
-        const keys = await this.scanKeys(pattern);
-        if (keys.length > 0) {
-          const batchSize = 1000;
-          for (let i = 0; i < keys.length; i += batchSize) {
-            const batch = keys.slice(i, i + batchSize);
-            await this.client.del(...batch);
-          }
-
-          log(colors.yellow, 'REDIS', colors.reset, `Deleted ${keys.length} keys matching "${pattern}"`);
-          totalDeleted += keys.length;
-        }
-      }
-
-      log(colors.green, 'REDIS', colors.reset, `✅ Cleared ${totalDeleted} keys total. Ready for fresh data.`);
-      return { success: true, totalDeleted };
-    } catch (error) {
-      log(colors.red, 'REDIS', colors.reset, `Error clearing app data: ${error.message}`);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // ===================== Analysis =====================
-  async saveAnalysis(data) {
-    const key = `Analysis`;
-    await this.client.set(key, JSON.stringify(data));
-  }
-
-  async getAnalysis() {
-    const raw = await this.client.get('Analysis');
-    if (!raw) {
-      return { Type_1: [], Type_2: [], time_analysis: null };
-    }
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return { Type_1: [], Type_2: [], time_analysis: null };
-    }
-  }
-
-  // ===================== RESET PROGRESS TRACKING =====================
+  // ===================== RESET PROGRESS TRACKING (GIỮ NGUYÊN) =====================
   async startResetTracking(brokers) {
-    try {
-      const data = {
-        brokers: brokers.map((b) => ({
-          name: b.broker_ || b.broker,
-          percentage: 0,
-          completed: false,
-        })),
-        currentIndex: 0,
-        startedAt: Date.now(),
-      };
-
-      await this.client.setex('reset_progress', 3600, JSON.stringify(data));
-      log(colors.green, 'REDIS', colors.reset, `✅ Started tracking ${brokers.length} brokers`);
-      return true;
-    } catch (error) {
-      console.error('Error starting reset tracking:', error);
-      return false;
-    }
+    const data = {
+      brokers: brokers.map(b => ({ name: b.broker_ || b.broker, percentage: 0, completed: false })),
+      currentIndex: 0,
+      startedAt: Date.now(),
+    };
+    await this.client.setex('reset_progress', 3600, JSON.stringify(data));
+    return true;
   }
 
   async updateResetProgress(brokerName, percentage) {
-    try {
-      const data = await this.client.get('reset_progress');
-      if (!data) return false;
+    const data = await this.client.get('reset_progress');
+    if (!data) return false;
 
-      const progress = JSON.parse(data);
-      const broker = progress.brokers.find((b) => b.name === brokerName);
+    const progress = JSON.parse(data);
+    const broker = progress.brokers.find(b => b.name === brokerName);
+    if (!broker) return false;
 
-      if (broker) {
-        broker.percentage = percentage;
-        if (percentage >= 30) {
-          broker.completed = true;
-          log(colors.green, 'RESET', colors.reset, `✅ ${brokerName} completed: ${percentage}%`);
-        }
-        await this.client.setex('reset_progress', 3600, JSON.stringify(progress));
-        return true;
-      }
+    broker.percentage = percentage;
+    if (percentage >= 30) broker.completed = true;
 
-      return false;
-    } catch (error) {
-      console.error('Error updating reset progress:', error);
-      return false;
-    }
+    await this.client.setex('reset_progress', 3600, JSON.stringify(progress));
+    return true;
   }
 
   async isResetCompleted(brokerName) {
-    try {
-      const data = await this.client.get('reset_progress');
-      if (!data) return false;
-
-      const progress = JSON.parse(data);
-      const broker = progress.brokers.find((b) => b.name === brokerName);
-      return broker ? broker.completed : false;
-    } catch {
-      return false;
-    }
+    const data = await this.client.get('reset_progress');
+    if (!data) return false;
+    const progress = JSON.parse(data);
+    const broker = progress.brokers.find(b => b.name === brokerName);
+    return broker ? broker.completed : false;
   }
 
   async isResetting() {
-    try {
-      const exists = await this.client.exists('reset_progress');
-      return exists === 1;
-    } catch {
-      return false;
-    }
+    return (await this.client.exists('reset_progress')) === 1;
   }
 
   async getResetStatus() {
-    try {
-      const data = await this.client.get('reset_progress');
-      if (!data) return null;
+    const data = await this.client.get('reset_progress');
+    if (!data) return null;
 
-      const progress = JSON.parse(data);
-      const completed = progress.brokers.filter((b) => b.completed).length;
-      const total = progress.brokers.length;
+    const progress = JSON.parse(data);
+    const completed = progress.brokers.filter(b => b.completed).length;
+    const total = progress.brokers.length;
 
-      return {
-        isRunning: true,
-        progress: `${completed}/${total}`,
-        percentage: Math.round((completed / total) * 100),
-        startedAt: progress.startedAt,
-        brokers: progress.brokers,
-      };
-    } catch {
-      return null;
-    }
+    return {
+      isRunning: true,
+      progress: `${completed}/${total}`,
+      percentage: Math.round((completed / total) * 100),
+      startedAt: progress.startedAt,
+      brokers: progress.brokers,
+    };
   }
 
   async clearResetTracking() {
-    try {
-      await this.client.del('reset_progress');
-      log(colors.green, 'REDIS', colors.reset, '✅ Cleared reset tracking');
-    } catch (error) {
-      console.error('Error clearing reset tracking:', error);
-    }
+    await this.client.del('reset_progress');
   }
 
-  // ===================== GRACEFUL SHUTDOWN =====================
+  // ===================== SHUTDOWN =====================
   async disconnect() {
     try {
       this.messageHandlers.clear();
@@ -710,8 +669,8 @@ class RedisManager {
       await this.subscriberClient.quit();
       await this.client.quit();
       log(colors.yellow, 'REDIS', colors.reset, 'Disconnected gracefully');
-    } catch (error) {
-      console.error('Error disconnecting:', error);
+    } catch (e) {
+      console.error('Error disconnecting:', e);
     }
   }
 }
