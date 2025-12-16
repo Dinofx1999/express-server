@@ -887,6 +887,23 @@ class RedisManager {
       console.error('Error disconnecting:', error);
     }
   }
+
+    async getBrokerResetting() {
+    // Chỉ load META => nhanh hơn rất nhiều
+    const metaKeys = await this.scanKeys('BROKER:*:META');
+    if (metaKeys.length === 0) return [];
+
+    const p = this.client.pipeline();
+    for (const mk of metaKeys) p.hgetall(mk);
+    const res = await p.exec();
+
+    const metas = res
+      .map(r => r?.[1])
+      .filter(m => m && m.broker && m.status !== "True")
+      .sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+
+    return metas;
+  }
 }
 
 module.exports = new RedisManager();
