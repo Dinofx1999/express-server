@@ -15,45 +15,29 @@ const { log, colors } = require('../Helpers/Log');
  */
 
 class RedisManager {
-  constructor() {
-    this.messageHandlers = new Map(); // channel -> callback
+ constructor() {
+    this.messageHandlers = new Map();
     this.isSubscriberSetup = false;
 
-    // ✅ ioredis tối ưu realtime:
-    // - enableAutoPipelining: gom lệnh tự động giảm roundtrip
-    // - maxRetriesPerRequest: null => tránh “kẹt request” khi lag
-    // - keepAlive: giữ TCP ổn định
     const redisConfig = {
       host: 'localhost',
       port: 6379,
-
-      // ⚡ tăng throughput (rất quan trọng)
       enableAutoPipelining: true,
-      autoPipeliningIgnoredCommands: ['subscribe', 'psubscribe', 'unsubscribe', 'punsubscribe'],
-
-      // ổn định khi có spike
       maxRetriesPerRequest: null,
-      enableReadyCheck: true,
       keepAlive: 10000,
-
       retryStrategy: (times) => Math.min(times * 50, 2000),
-      reconnectOnError: (err) => {
-        // reconnect khi gặp lỗi mạng/READONLY…
-        const msg = err?.message || '';
-        if (msg.includes('READONLY') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT')) return true;
-        return false;
-      },
     };
 
-    // ✅ 1 client data chính
+    // ✅ client chính để GET/SET/SCAN...
     this.client = new Redis(redisConfig);
 
-    // ✅ pub/sub tách connection (Redis yêu cầu subscribe riêng)
+    // ✅ pub/sub phải tách connection
     this.publisherClient = this.client.duplicate();
     this.subscriberClient = this.client.duplicate();
 
     this.setupEventHandlers();
   }
+
 
   // ==========================
   // Helpers
