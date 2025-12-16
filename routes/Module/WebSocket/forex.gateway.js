@@ -330,16 +330,33 @@ function setupWebSocketServer(port) {
                             break;
                        
                         case "SET_DATA":
-                            try {
-                                const rawData = data.data;
-                                if (!rawData.broker || !rawData.index) {
-                                    throw new Error('Invalid broker data structure');
-                                }
-                                const save = await Redis.saveBrokerData(formatString(rawData.broker) , rawData);
-                            } catch (error) {
-                                console.error('Error saving broker data:', error.message);
-                            }
-                            break;
+  try {
+    const rawData = data.data;
+
+    if (!rawData?.broker || rawData?.index === undefined) {
+      throw new Error('Invalid broker data structure');
+    }
+
+    const brokerKeyName = formatString(rawData.broker);
+
+    const result = await Redis.saveBrokerData(brokerKeyName, rawData);
+
+    // ✅ debug: kiểm tra key có thật sự được tạo không
+    const metaExists = await Redis.client.exists(`BROKER:${brokerKeyName}:META`);
+    const legacyExists = await Redis.client.exists(`BROKER:${brokerKeyName}`);
+
+    console.log("[SET_DATA] saved:", brokerKeyName, result, {
+      metaExists,
+      legacyExists,
+      index: rawData.index,
+      status: rawData.status,
+      symbols: rawData.OHLC_Symbols?.length || 0,
+    });
+  } catch (error) {
+    console.error('Error saving broker data:', error?.message || error, error?.stack);
+  }
+  break;
+
                         case "ORDER_SEND":
                             try {
                                 const orderData = data?.data || {};
