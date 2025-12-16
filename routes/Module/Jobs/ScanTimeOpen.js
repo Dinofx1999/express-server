@@ -11,11 +11,11 @@ const SymbolDebounceQueue = require("../Redis/DebounceQueue");
 const { configAdmin } = require("../../../models/index");
 
 const queue = new SymbolDebounceQueue({
-  debounceTime: 2000, // 2s không có payload mới
+  debounceTime: 5000, // 5s không có payload mới
   maxWaitTime: 10000, // Tối đa 10s
   maxPayloads: 5000, // Tối đa 5000 unique payloads
-  delayBetweenTasks: 200, // 150ms delay giữa các task
-  cooldownTime: 5000, // 5s cooldown after processing
+  delayBetweenTasks: 500, // 500ms delay giữa các task
+  cooldownTime: 10000, // 10s cooldown after processing
 });
 
 async function startJob() {

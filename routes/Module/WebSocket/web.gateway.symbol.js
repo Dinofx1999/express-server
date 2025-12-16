@@ -19,26 +19,26 @@ const { formatString, normSym } = require('../Helpers/text.format');
 
 function setupWebSocketServer(port) {
 
-    Redis.subscribe(String(port), async (channel, message) => {
-        const Broker = channel.Broker;
-        for (const [id, element] of Client_Connected.entries()) {
-            if (element.Broker == Broker) {
-                if (element.ws.readyState === WebSocket.OPEN) {
-                    console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
-                    if (channel.Symbol === "all") {
-                        const Mess = JSON.stringify({ type: "Reset_All", Success: 1 });
-                        element.ws.send(Mess);
-                    } else if (channel.type === "destroy_broker") {
-                        const Mess = JSON.stringify({ type: "Destroy_Broker", Success: 1, message: channel.Symbol });
-                        element.ws.send(Mess);
-                    } else {
-                        const Mess = JSON.stringify({ type: "Reset_Only", Success: 1, message: channel.Symbol });
-                        element.ws.send(Mess);
-                    }
-                }
-            }
-        }
-    });
+    // Redis.subscribe(String(port), async (channel, message) => {
+    //     const Broker = channel.Broker;
+    //     for (const [id, element] of Client_Connected.entries()) {
+    //         if (element.Broker == Broker) {
+    //             if (element.ws.readyState === WebSocket.OPEN) {
+    //                 console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
+    //                 if (channel.Symbol === "all") {
+    //                     const Mess = JSON.stringify({ type: "Reset_All", Success: 1 });
+    //                     element.ws.send(Mess);
+    //                 } else if (channel.type === "destroy_broker") {
+    //                     const Mess = JSON.stringify({ type: "Destroy_Broker", Success: 1, message: channel.Symbol });
+    //                     element.ws.send(Mess);
+    //                 } else {
+    //                     const Mess = JSON.stringify({ type: "Reset_Only", Success: 1, message: channel.Symbol });
+    //                     element.ws.send(Mess);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // });
 
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
