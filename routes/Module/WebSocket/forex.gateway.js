@@ -332,6 +332,7 @@ function setupWebSocketServer(port) {
                         case "SET_DATA":
   try {
     const rawData = data.data;
+    console.log("Raw Data to Save:", rawData);
 
     if (!rawData?.broker || rawData?.index === undefined) {
       throw new Error('Invalid broker data structure');
