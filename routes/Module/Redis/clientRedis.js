@@ -10,11 +10,15 @@ class RedisManager {
     this.isPublisherReady = false;
     this.isSubscriberReady = false;
 
-    // ✅ SIMPLE CACHE
+    // ✅ CACHE
     this._cache = {
       allBrokers: { at: 0, ttl: 100, value: null },
       brokerData: new Map(),
     };
+
+    // ✅ BATCH BUFFER SYSTEM
+    this.batchBuffer = new Map(); // broker -> { batches: [], timeout, receivedCount }
+    this.BATCH_WINDOW = 150; // ms - wait time for batches
 
     const redisConfig = {
       host: process.env.REDIS_HOST || 'localhost',
@@ -253,7 +257,104 @@ class RedisManager {
   }
 
   // ================================================================
-  // BROKER OPERATIONS
+  // ✅ BATCH BUFFER SYSTEM
+  // ================================================================
+
+  async _processBatchBuffer(broker) {
+    const buffer = this.batchBuffer.get(broker);
+    if (!buffer) return;
+
+    try {
+      // Clear timeout
+      if (buffer.timeout) {
+        clearTimeout(buffer.timeout);
+        buffer.timeout = null;
+      }
+
+      const batches = buffer.batches;
+      const startTime = Date.now();
+
+      // ✅ MERGE ALL BATCHES
+      const mergedData = this._mergeAllBatches(batches);
+
+      // ✅ SAVE MERGED DATA
+      const key = `BROKER:${broker}`;
+      await this.client.set(key, JSON.stringify(mergedData));
+
+      this._invalidateCache();
+
+      const elapsed = Date.now() - startTime;
+
+      log(colors.green, 'REDIS', colors.reset, 
+          `✅ ${broker}: Merged ${batches.length} batches (${mergedData.OHLC_Symbols.length} symbols) in ${elapsed}ms`);
+
+      // Clean up buffer
+      this.batchBuffer.delete(broker);
+
+      return {
+        success: true,
+        action: 'merged_batches',
+        batches: batches.length,
+        symbols: mergedData.OHLC_Symbols.length,
+        elapsed
+      };
+
+    } catch (error) {
+      console.error(`Error processing batch buffer for ${broker}:`, error.message);
+      this.batchBuffer.delete(broker);
+      
+      return {
+        success: false,
+        action: 'error',
+        error: error.message
+      };
+    }
+  }
+
+  _mergeAllBatches(batches) {
+    if (!batches || batches.length === 0) {
+      throw new Error('No batches to merge');
+    }
+
+    // Use first batch as base
+    const merged = {
+      port: batches[0].port || '',
+      index: batches[0].index || '',
+      broker: batches[0].broker || '',
+      broker_: batches[0].broker_ || '',
+      version: batches[0].version || '',
+      typeaccount: batches[0].typeaccount || '',
+      timecurent: batches[0].timecurent || '',
+      auto_trade: batches[0].auto_trade || '',
+      status: batches[0].status || '',
+      timeUpdated: batches[0].timeUpdated || new Date().toISOString().slice(0, 19).replace('T', ' '),
+      totalsymbol: '0',
+      OHLC_Symbols: []
+    };
+
+    // ✅ MERGE SYMBOLS from all batches
+    const symbolMap = new Map();
+
+    for (const batch of batches) {
+      const symbols = batch.OHLC_Symbols || [];
+      
+      for (const sym of symbols) {
+        if (!sym || !sym.symbol) continue;
+        
+        // Use symbol name as key to avoid duplicates
+        symbolMap.set(sym.symbol, sym);
+      }
+    }
+
+    // Convert Map to Array
+    merged.OHLC_Symbols = Array.from(symbolMap.values());
+    merged.totalsymbol = merged.OHLC_Symbols.length.toString();
+
+    return merged;
+  }
+
+  // ================================================================
+  // ✅ SAVE BROKER DATA - with BATCH SUPPORT
   // ================================================================
 
   async saveBrokerData(broker, data) {
@@ -270,42 +371,17 @@ class RedisManager {
         };
       }
 
-      const key = `BROKER:${broker}`;
-      
-      // ✅ SIMPLE: Save entire data as JSON (no compression for speed)
-      const brokerData = {
-        port: data.port || '',
-        index: data.index || '',
-        broker: data.broker || broker,
-        broker_: data.broker_ || '',
-        version: data.version || '',
-        typeaccount: data.typeaccount || '',
-        timecurent: data.timecurent || '',
-        auto_trade: data.auto_trade || '',
-        status: data.status || '',
-        timeUpdated: data.timeUpdated || new Date().toISOString().slice(0, 19).replace('T', ' '),
-        totalsymbol: data.totalsymbol || '0',
-        batch: data.batch || '',
-        totalBatches: data.totalBatches || '',
-        OHLC_Symbols: data.OHLC_Symbols || []
-      };
+      // ✅ CHECK IF THIS IS BATCHED DATA
+      const batchNum = parseInt(data.batch) || 0;
+      const totalBatches = parseInt(data.totalBatches) || 0;
 
-      await this.client.set(key, JSON.stringify(brokerData));
-      
-      this._invalidateCache();
-
-      const elapsed = Date.now() - startTime;
-
-      if (elapsed > 50) {
-        log(colors.yellow, 'REDIS', colors.reset, `⚠️ ${broker}: Save took ${elapsed}ms`);
+      // ✅ SINGLE BATCH or NO BATCH INFO → Save immediately
+      if (totalBatches <= 1 || !batchNum) {
+        return await this._saveBrokerImmediate(broker, data, startTime);
       }
 
-      return { 
-        success: true, 
-        action: 'saved', 
-        symbols: brokerData.OHLC_Symbols.length,
-        elapsed 
-      };
+      // ✅ MULTIPLE BATCHES → Use buffer system
+      return await this._saveBrokerBuffered(broker, data, batchNum, totalBatches, startTime);
 
     } catch (error) {
       console.error(`Error saving ${broker}:`, error.message);
@@ -317,6 +393,88 @@ class RedisManager {
       };
     }
   }
+
+  async _saveBrokerImmediate(broker, data, startTime) {
+    const key = `BROKER:${broker}`;
+    
+    const brokerData = {
+      port: data.port || '',
+      index: data.index || '',
+      broker: data.broker || broker,
+      broker_: data.broker_ || '',
+      version: data.version || '',
+      typeaccount: data.typeaccount || '',
+      timecurent: data.timecurent || '',
+      auto_trade: data.auto_trade || '',
+      status: data.status || '',
+      timeUpdated: data.timeUpdated || new Date().toISOString().slice(0, 19).replace('T', ' '),
+      totalsymbol: data.totalsymbol || '0',
+      OHLC_Symbols: data.OHLC_Symbols || []
+    };
+
+    await this.client.set(key, JSON.stringify(brokerData));
+    
+    this._invalidateCache();
+
+    const elapsed = Date.now() - startTime;
+
+    return { 
+      success: true, 
+      action: 'saved_immediate', 
+      symbols: brokerData.OHLC_Symbols.length,
+      elapsed 
+    };
+  }
+
+  async _saveBrokerBuffered(broker, data, batchNum, totalBatches, startTime) {
+    // ✅ GET or CREATE BUFFER
+    if (!this.batchBuffer.has(broker)) {
+      this.batchBuffer.set(broker, {
+        batches: [],
+        receivedBatches: new Set(),
+        timeout: null,
+        totalExpected: totalBatches
+      });
+    }
+
+    const buffer = this.batchBuffer.get(broker);
+
+    // ✅ ADD BATCH to buffer
+    buffer.batches.push(data);
+    buffer.receivedBatches.add(batchNum);
+
+    // ✅ CHECK if ALL BATCHES RECEIVED
+    if (buffer.receivedBatches.size === totalBatches) {
+      // All batches received → Process immediately
+      return await this._processBatchBuffer(broker);
+    }
+
+    // ✅ NOT ALL BATCHES YET → Set timeout
+    if (buffer.timeout) {
+      clearTimeout(buffer.timeout);
+    }
+
+    buffer.timeout = setTimeout(() => {
+      log(colors.yellow, 'REDIS', colors.reset, 
+          `⚠️ ${broker}: Timeout - Processing ${buffer.receivedBatches.size}/${totalBatches} batches`);
+      this._processBatchBuffer(broker);
+    }, this.BATCH_WINDOW);
+
+    const elapsed = Date.now() - startTime;
+
+    return {
+      success: true,
+      action: 'buffered',
+      batch: batchNum,
+      totalBatches: totalBatches,
+      received: buffer.receivedBatches.size,
+      elapsed
+    };
+  }
+
+  // ================================================================
+  // GET BROKER
+  // ================================================================
 
   async getBroker(brokerName) {
     try {
@@ -421,6 +579,13 @@ class RedisManager {
       }
 
       await this.client.del(key);
+
+      // ✅ Clear batch buffer if exists
+      if (this.batchBuffer.has(brokerName)) {
+        const buffer = this.batchBuffer.get(brokerName);
+        if (buffer.timeout) clearTimeout(buffer.timeout);
+        this.batchBuffer.delete(brokerName);
+      }
 
       // ✅ Delete old symbol keys if exist
       const oldSymbolKeys = await this.scanKeys(`symbol:${brokerName}:*`);
@@ -729,6 +894,12 @@ class RedisManager {
       await this.client.flushall();
       this._invalidateCache();
       
+      // Clear batch buffers
+      for (const [broker, buffer] of this.batchBuffer.entries()) {
+        if (buffer.timeout) clearTimeout(buffer.timeout);
+      }
+      this.batchBuffer.clear();
+      
       log(colors.green, 'REDIS', colors.reset, 'Redis cleared successfully');
       return true;
     } catch (error) {
@@ -769,6 +940,12 @@ class RedisManager {
       }
 
       this._invalidateCache();
+      
+      // Clear batch buffers
+      for (const [broker, buffer] of this.batchBuffer.entries()) {
+        if (buffer.timeout) clearTimeout(buffer.timeout);
+      }
+      this.batchBuffer.clear();
       
       log(colors.green, 'REDIS', colors.reset, `✅ Cleared ${totalDeleted} keys total`);
       return { success: true, totalDeleted };
@@ -899,6 +1076,12 @@ class RedisManager {
       this.isSubscriberReady = false;
       this.messageHandlers.clear();
       this._invalidateCache();
+      
+      // Clear all batch buffers
+      for (const [broker, buffer] of this.batchBuffer.entries()) {
+        if (buffer.timeout) clearTimeout(buffer.timeout);
+      }
+      this.batchBuffer.clear();
       
       await Promise.all([
         this.publisherClient.quit(),
