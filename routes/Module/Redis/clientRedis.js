@@ -1,7 +1,7 @@
 const redisClient = require('./redisManager');
 const Redis = require('ioredis');
 const { log, colors } = require('../Helpers/Log');
-
+// ================================================================
 class RedisManager {
   constructor() {
     this.client = redisClient;
