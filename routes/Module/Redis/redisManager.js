@@ -22,7 +22,7 @@ const redisConfig = {
   retryStrategy: (times) => {
     if (times > 10) {
       log(colors.red, 'REDIS', colors.reset, '❌ Max retries reached');
-      return null; // Stop retrying
+      return null;
     }
     const delay = Math.min(times * 100, 3000);
     log(colors.yellow, 'REDIS', colors.reset, `Retry ${times} in ${delay}ms`);
