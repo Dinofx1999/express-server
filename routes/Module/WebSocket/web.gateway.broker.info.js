@@ -5,6 +5,14 @@ const { getTimeGMT7 } = require('../Helpers/time');
 
 // Import các modules hiện tại
 const Redis = require('../Redis/clientRedis');
+
+const RedisH = require('../Redis/redis.helper');
+RedisH.initRedis({
+  host: '127.0.0.1',
+  port: 6379,
+  db: 0,          // ⚠️ PHẢI giống worker ghi
+  compress: true
+});
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
 // const e = require('express');
@@ -53,9 +61,12 @@ function setupWebSocketServer(port) {
     const interval = setInterval(function ping() {
         wss.clients.forEach(async function each(ws) {
             //Lấy Thông Tin của 1 Broker
-            const data = await Redis.getBroker(ws.Broker);
+            // const data = await Redis.getBroker(ws.Broker);
+            const list = await RedisH.getBroker('abc');
+        console.log(list.length);
+        console.log(list[0]);
 
-            ws.send(JSON.stringify({time: getTimeGMT7() , data: data }));
+            ws.send(JSON.stringify({time: getTimeGMT7() , data: list }));
         });
     }, 200);
 

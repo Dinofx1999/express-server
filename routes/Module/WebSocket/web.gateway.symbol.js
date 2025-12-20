@@ -4,6 +4,13 @@ require('dotenv').config();
 const { getTimeGMT7 } = require('../Helpers/time');
 
 const Redis = require('../Redis/clientRedis');
+const RedisH = require('../Redis/redis.helper');
+RedisH.initRedis({
+  host: '127.0.0.1',
+  port: 6379,
+  db: 0,          // ⚠️ PHẢI giống worker ghi
+  compress: true
+});
 
 const requestCounts = new Map();
 const MAX_REQUESTS = 10;
@@ -18,27 +25,6 @@ const { log, colors } = require('../Helpers/Log');
 const { formatString, normSym } = require('../Helpers/text.format');
 
 function setupWebSocketServer(port) {
-
-    // Redis.subscribe(String(port), async (channel, message) => {
-    //     const Broker = channel.Broker;
-    //     for (const [id, element] of Client_Connected.entries()) {
-    //         if (element.Broker == Broker) {
-    //             if (element.ws.readyState === WebSocket.OPEN) {
-    //                 console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
-    //                 if (channel.Symbol === "all") {
-    //                     const Mess = JSON.stringify({ type: "Reset_All", Success: 1 });
-    //                     element.ws.send(Mess);
-    //                 } else if (channel.type === "destroy_broker") {
-    //                     const Mess = JSON.stringify({ type: "Destroy_Broker", Success: 1, message: channel.Symbol });
-    //                     element.ws.send(Mess);
-    //                 } else {
-    //                     const Mess = JSON.stringify({ type: "Reset_Only", Success: 1, message: channel.Symbol });
-    //                     element.ws.send(Mess);
-    //                 }
-    //             }
-    //         }
-    //     }
-    // });
 
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -87,14 +73,14 @@ function setupWebSocketServer(port) {
                     return;
                 }
 
-                // 2️⃣ Lấy TẤT CẢ data 1 lần duy nhất
-                const dataMap = await Redis.getMultipleSymbolDetails(symbols);
+                // 2️⃣ Lấy TẤT CẢ data 1 lần duy nhấtss
+                const dataMap = await RedisH.getSymbolAllBroker(symbols);
+                
                 const time = getTimeGMT7();
 
                 // 3️⃣ Gửi data cho từng group clients
                 for (const [sym, clients] of clientsBySymbol) {
-                    const data = dataMap.get(sym) || [];
-                    const message = JSON.stringify({ time, data });
+                    const message = JSON.stringify({ time, data:dataMap });
 
                     // Gửi cùng 1 message cho tất cả clients xem symbol này
                     for (const ws of clients) {

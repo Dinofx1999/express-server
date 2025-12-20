@@ -5,7 +5,13 @@ const { getTimeGMT7 } = require('../Helpers/time');
 
 
 // Import các modules hiện tại
-const Redis = require('../Redis/clientRedis');
+const RedisH = require('../Redis/redis.helper');
+RedisH.initRedis({
+  host: '127.0.0.1',
+  port: 6379,
+  db: 0,          // ⚠️ PHẢI giống worker ghi
+  compress: true
+});
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
 // const e = require('express');
@@ -25,30 +31,6 @@ const {log , colors} = require('../Helpers/Log');
 const {formatString , normSym} = require('../Helpers/text.format');
 
 function setupWebSocketServer(port) {
-
-    Redis.subscribe(String(port), async (channel, message) => {
-        const Broker = channel.Broker
-        for (const [id, element] of Client_Connected.entries()) {
-            if(element.Broker == Broker) {
-                if (element.ws.readyState === WebSocket.OPEN) {
-                    console.log(Color_Log_Success, `Publish to Broker: ${channel}`);
-                    if(channel.Symbol === "all") {
-                        const Mess = JSON.stringify({type : "Reset_All", Success: 1 });
-                        console.log(element);
-                        element.ws.send(Mess);
-                    }else if(channel.type === "destroy_broker"){
-                        const Mess = JSON.stringify({type : "Destroy_Broker", Success: 1 , message: channel.Symbol});
-                        element.ws.send(Mess);
-                        console.log(Mess);
-                    }else{
-                        const Mess = JSON.stringify({type : "Reset_Only", Success: 1 , message: channel.Symbol});
-                        element.ws.send(Mess);
-                        console.log(Mess);
-                    }
-                }
-            }
-        };
-    });
     // Tạo HTTP server trước
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -76,9 +58,9 @@ function setupWebSocketServer(port) {
     const interval = setInterval(function ping() {
         wss.clients.forEach(async function each(ws) {
             //Lấy giá của 1 Symbol của tất cả Broker
-            
-            const data = await Redis.Broker_names();
-            ws.send(JSON.stringify({time: getTimeGMT7() , data: data }));
+           const brokers = await RedisH.Broker_names();
+
+            ws.send(JSON.stringify({time: getTimeGMT7() , data: brokers }));
         });
     }, 500);
 

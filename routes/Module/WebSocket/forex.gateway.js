@@ -9,6 +9,10 @@ const RequestDeduplicator = require('../Redis/RequestDeduplicator');
 const  SymbolDebounceQueue   = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
 const { startTradeQueue, addTradeJob } = require('../Queue/trade.queue');
+
+const RedisH = require('../Redis/redis.helper');
+
+
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
 // const e = require('express');
@@ -27,7 +31,6 @@ const Client_Connected = new Map();
 
 const {log , colors} = require('../Helpers/Log');
 const {formatString , normSym ,calculatePercentage} = require('../Helpers/text.format');
-const { console } = require('inspector');
 const { stringify } = require('querystring');
 // let brokersActived = [];
 // let info_symbol_config = [];
@@ -40,6 +43,13 @@ const queue = new SymbolDebounceQueue({
     maxPayloads: 5000,         // Tối đa 5000 unique payloads
     delayBetweenTasks: 100,    // 100ms delay giữa các task
     cooldownTime: 5000       // 5s cooldown after processing
+});
+
+RedisH.initRedis({
+  host: '127.0.0.1',
+  port: 6379,
+  db: 0,          // ⚠️ PHẢI giống worker ghi
+  compress: true
 });
 async function onBrokerStatusChange(brokerName, statusString) {
     const percentage = calculatePercentage(statusString);
@@ -177,7 +187,8 @@ function setupWebSocketServer(port) {
 
     try {   
         wss.on('connection', async function connection(ws, req) {
-            
+            console.log('UA=', req.headers['user-agent'], 'url=', req.url, 'ip=', req.socket.remoteAddress);
+
         //    SaveAll_Info();
             // console.log(brokersCache);
             // Thiết lập heartbeat cho kết nối mới
@@ -198,7 +209,7 @@ function setupWebSocketServer(port) {
                 var Index_Broker = req.rawHeaders[12].split("-")[1].trim();
                 var Key_SECRET = req.rawHeaders[12]?.split("-")[2].trim()||"No Key";
                 let VerNum = parseFloat(Version);
-                await Redis.deleteBroker(formattedBrokerName).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
+                // await Redis.deleteBroker(formattedBrokerName).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
                 
               
                 // Kiểm tra version
@@ -210,10 +221,10 @@ function setupWebSocketServer(port) {
                     }
                 } else { 
                     if (ws.readyState === WebSocket.OPEN) {
-                        const brokerData = await Redis.findBrokerByIndex(Index_Broker);
-                        if(brokerData == null) {
-                            const Broker_Check = await Redis.getBroker(formattedBrokerName);
-                            if(Broker_Check == null) {
+                        const brokerData = await RedisH.findBrokerByIndex(Index_Broker);
+                        if(brokerData == null || brokerData.broker_ === formattedBrokerName) {
+                            const Broker_Check = await RedisH.getBrokerMeta(formattedBrokerName);
+                            if(Broker_Check == null || Broker_Check.index === Index_Broker) {
                                 log(colors.green, `FX_CLIENT - ${port} `, colors.green, message);
                                 ws.send(JSON.stringify({type : String(process.env.CHECK_FIRT), Success: 1 , message: `Version = ${Version} , Index = ${Index_Broker} , Broker = ${BrokerName} , Key_SECRET = ${Key_SECRET} => Success`, Data: getTimeGMT7('datetime')}));
                                 // Lưu client đã connect
@@ -244,10 +255,9 @@ function setupWebSocketServer(port) {
                 }
             });
             
-            // Xử lý khi có message từ client
+            // Xử lý khi có message từ clienty
             ws.on('message', async function incoming(message) {
                 
-                console.log(message);
                 try {
                     const data = JSON.parse(message)[0];
                     
@@ -270,10 +280,10 @@ function setupWebSocketServer(port) {
                                 const Broker = data.data.broker;
                                 const Index = data.data.index;
                                 const reset_text = data.data.Payload.mess;
-                                await Redis.updateBrokerStatus(formatString(Broker), reset_text); 
+                                await RedisH.updateBrokerStatus(formatString(Broker), reset_text); 
                                 await onBrokerStatusChange(formatString(Broker), reset_text);
                                 
-                                const Response = await Redis.getSymbol(Symbol);
+                                const Response = await RedisH.getBestSymbolFast(Symbol);
                                 // console.log("Response:", Response);
                                 let responseData;
                                 let logColor;
@@ -328,18 +338,14 @@ function setupWebSocketServer(port) {
                                 }
                             }
                             break;
-                       
-                        case "SET_DATA":
-                            try {
-                                const rawData = data.data;
-                                if (!rawData.broker || !rawData.index) {
-                                    throw new Error('Invalid broker data structure');
-                                }
-                                const save = await Redis.saveBrokerData(formatString(rawData.broker) , rawData);
-                            } catch (error) {
-                                console.error('Error saving broker data:', error.message);
-                            }
+                       case "SET_DATA": {
+                            const rawData = data.data;
+                            const t0 = Date.now();
+                            await RedisH.saveBrokerBatch(rawData);
+                            const ms = Date.now() - t0;
+                            if (ms > 20) console.log('SLOW SAVE', rawData.broker_, ms);
                             break;
+                            }
                         case "ORDER_SEND":
                             try {
                                 const orderData = data?.data || {};
@@ -432,7 +438,7 @@ function setupWebSocketServer(port) {
                 const client = Client_Connected.get(ws.id);
                 if (client) {
                     log(colors.red, `FX_CLIENT - ${port} `, colors.reset, `Client disconnected: ${client.Broker}`);
-                    await Redis.deleteBroker(client.Broker).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
+                    // await Redis.deleteBroker(client.Broker).catch(err => log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err));
                     Client_Connected.delete(ws.id);
                 }
             });

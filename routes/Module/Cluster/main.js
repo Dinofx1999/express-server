@@ -4,17 +4,40 @@ const mongoose = require("mongoose");
 const {log , colors} = require('../Helpers/Log');
 // Import các module
 const Redis = require('../Redis/clientRedis');
+const RedisH = require('../Redis/redis.helper');
+RedisH.initRedis({
+  host: '127.0.0.1',
+  port: 6379,
+  db: 0,          // ⚠️ PHẢI giống worker ghi
+  compress: true
+});
 //WebSocket
 const WebSocket = require('../WebSocket/forex.gateway');
 const WS_Symbol = require('../WebSocket/web.gateway.symbol');
 const WS_Broker = require('../WebSocket/web.gateway.brokers');
 const WS_Info_Broker = require('../WebSocket/web.gateway.broker.info');
 const WS_Analysis = require('../WebSocket/web.gateway.analys.mongo');
+const WS_Chart = require('../WebSocket/web.gateway.chart');
 require('dotenv').config({ quiet: true });
 //JOBs
 const JOB_Analysis = require('../Jobs/AnalysisMain');
 const JOB_Cron_DatAnalyses_MongoDB = require('../Jobs/Cron.Mongo.Analyses');
 const JOB_ScanTimeOpen = require('../Jobs/ScanTimeOpen');
+
+// ===== MONITOR EVENT LOOP DELAY =====
+const { monitorEventLoopDelay } = require('perf_hooks');
+
+// const h = monitorEventLoopDelay({ resolution: 20 });
+// h.enable();
+
+// setInterval(() => {
+//   console.log(
+//     '[EL]',
+//     'mean(ms)=', (h.mean / 1e6).toFixed(1),
+//     'max(ms)=', (h.max / 1e6).toFixed(1)
+//   );
+//   h.reset();
+// }, 2000);
 
 // Cấu hình màu log
 const Color_Log_Master = "\x1b[36m%s\x1b[0m";
@@ -72,7 +95,8 @@ async function MainStream() {
 
         if (cluster.isPrimary) {
             try {
-                await Redis.clearAllAppData();
+                await RedisH.clearAllData();
+
                 log(colors.cyan, 'MASTER', colors.reset, 'Redis data cleared successfully');
             } catch (redisError) {
                 log(colors.red, 'MASTER', colors.reset, `Error clearing Redis data:`, redisError);
@@ -88,13 +112,16 @@ async function MainStream() {
                 log(colors.cyan, 'MASTER', colors.reset, `Forking worker for WS on port ${WS_PORTS[i]}`);
             }
             
-            cluster.fork({ WORKER_TYPE: 'WS_WEB_SYMBOL', PORT: process.env.WS_PORT_SYMBOL || 2000 });
-            cluster.fork({ WORKER_TYPE: 'WS_WEB_BROKER', PORT: process.env.WS_PORT_BROKER || 2001 });
-            cluster.fork({ WORKER_TYPE: 'WS_INFO_BROKER', PORT: process.env.WS_PORT_INFO_BROKER || 2002 });
-            cluster.fork({ WORKER_TYPE: 'WS_ANALYSIS', PORT: process.env.WS_PORT_ANALYSIS || 2003 });
+            cluster.fork({ WORKER_TYPE: 'WS_WEB_SYMBOL', PORT: process.env.WS_PORT_SYMBOL || 8000 });
+            cluster.fork({ WORKER_TYPE: 'WS_WEB_BROKER', PORT: process.env.WS_PORT_BROKER || 8001 });
+            cluster.fork({ WORKER_TYPE: 'WS_INFO_BROKER', PORT: process.env.WS_PORT_INFO_BROKER || 8002 });
+            cluster.fork({ WORKER_TYPE: 'WS_ANALYSIS', PORT: process.env.WS_PORT_ANALYSIS || 8003 });
+            cluster.fork({ WORKER_TYPE: 'WS_CHART', PORT: process.env.WS_PORT_CHART || 8004 });
+
             cluster.fork({ WORKER_TYPE: 'JOBS', PORT: process.env.WS_PORT_ANALYSIS_JOB || 4000 });
             cluster.fork({ WORKER_TYPE: 'JOBS_CRON_MONGO', PORT: process.env.WS_PORT_CRON_MONGO || 4001 });
             cluster.fork({ WORKER_TYPE: 'JOBS_CRON_ScanTimeOpen', PORT: process.env.WS_PORT_CRON_SCAN_TIME_OPEN || 4002 });
+            
 
             cluster.on('exit', (worker, code, signal) => {
                 log(colors.red, 'WORKER', colors.reset, `Worker ${worker.id} died with code ${code} and signal ${signal}`);
@@ -143,6 +170,10 @@ async function MainStream() {
                 case 'WS_ANALYSIS':
                     log(colors.green, 'WORKER', colors.reset, `Starting WS_ANALYSIS on port ${port} PID: ${process.pid}`);
                     WS_Analysis(port);
+                    break;
+                case 'WS_CHART':
+                    log(colors.green, 'WORKER', colors.reset, `Starting WS_CHART on port ${port} PID: ${process.pid}`);
+                    WS_Chart(port);
                     break;
                 case 'JOBS':
                     log(colors.green, 'WORKER', colors.reset, `Starting JOB ANALYSIS PID: ${process.pid}`);

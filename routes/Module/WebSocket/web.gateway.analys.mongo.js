@@ -6,6 +6,14 @@ const { getTimeGMT7 } = require('../Helpers/time');
 // Import các modules
 const Redis = require('../Redis/clientRedis');
 
+const RedisH = require('../Redis/redis.helper');
+RedisH.initRedis({
+  host: '127.0.0.1',
+  port: 6379,
+  db: 0,          // ⚠️ PHẢI giống worker ghi
+  compress: true
+});
+
 var Color_Log_Success = "\x1b[32m%s\x1b[0m";
 var Color_Log_Error = "\x1b[31m%s\x1b[0m";
 
@@ -115,8 +123,9 @@ async function startJob(client, clientId) {
                 
                 // Lấy data từ Redis
                 const prices = await Redis.getAnalysis();
-                const symbols = await Redis.getAllUniqueSymbols();
+                
                 const resetting = await Redis.getBrokerResetting();
+                const symbols = await RedisH.getUnionSymbolsAllBrokers();
                 
                 // ✅ DEFENSIVE CHECK
                 const analysis = prices || { Type_1: [], Type_2: [], time_analysis: null };
