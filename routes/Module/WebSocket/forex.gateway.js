@@ -343,7 +343,7 @@ function setupWebSocketServer(port) {
                             const t0 = Date.now();
                             await RedisH.saveBrokerBatch(rawData);
                             const ms = Date.now() - t0;
-                            if (ms > 20) console.log('SLOW SAVE', rawData.broker_, ms);
+                            // if (ms > 20) console.log('SLOW SAVE', rawData.broker_, ms);
                             break;
                             }
                         case "ORDER_SEND":
