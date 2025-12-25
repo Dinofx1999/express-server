@@ -8,6 +8,13 @@ const { colors } = require('../Helpers/Log');
 
 let ConfigSymbol = [];
 let symbolConfigMap = new Map();
+const RedisH = require('../Redis/redis.helper');
+RedisH.initRedis({
+  host: '127.0.0.1',
+  port: 6379,
+  db: 0,          // ⚠️ PHẢI giống worker ghi
+  compress: true
+});
 
 async function startJob() {
   console.log(`[JOB ${process.pid}] Analysis booting...`);
@@ -54,13 +61,12 @@ function runAnalysisLoop() {
   async function tick() {
     const startTime = Date.now();
     const configAdmin = await Redis.getConfigAdmin();
-    // console.log(configAdmin);
-    const Delay_Stop = configAdmin.Delay_Stop || 10;
-    const Spread_Plus = configAdmin.SpreadPlus || 1;
-    const Type_Analysis = configAdmin.Type_Analysis || "type1";
+    const Delay_Stop = configAdmin?.Delay_Stop || 10;
+    const Spread_Plus = configAdmin?.SpreadPlus || 1;
+    const Type_Analysis = configAdmin?.Type_Analysis || "type1";
     try {
       // 1️⃣ Lấy danh sách symbols
-      const ALL_Symbol = await Redis.getAllUniqueSymbols();
+      const ALL_Symbol = await RedisH.getUnionSymbolsAllBrokers();
 
       // Chuẩn hóa symbols
       const symbols = ALL_Symbol
@@ -68,16 +74,16 @@ function runAnalysisLoop() {
         .filter(Boolean);
 
       // 2️⃣ Lấy TẤT CẢ price data 1 lần (thay vì 272 calls!)
-      const priceDataMap = await Redis.getMultipleSymbolDetails(symbols);
+      const priceDataMap = await RedisH.getMultipleSymbolDetails_RedisH(["BTCUSD","ETHUSD","LTCUSD","XRPUSD","BCHUSD","EOSUSD","XLMUSD","ADAUSD","TRXUSD","BNBUSD","DOTUSD","LINKUSD","XMRUSD","XTZUSD","ATOMUSD","VETUSD","NEOUSD","IOTAUSD","FILUSD","AAVEUSD","SNXUSD","MKRUSD","COMPUSD","YFIUSD","SUSHIUSD","UNIUSD","CRVUSD","1INCHUSD","ZRXUSD","BALUSD","KNCUSD","RENUSD","GRTUSD","ALGOUSD","AVAXUSD","FTMUSD","MATICUSD","SOLUSD","DOGEUSD"]);
 
       // 3️⃣ Phân tích song song
       await Promise.all(
         symbols.map(async (sym) => {
           try {
             // Lookup từ Map O(1)
+            
             const symbolConfig = symbolConfigMap.get(sym) || getSymbolInfo(ConfigSymbol, sym);
             const priceData = priceDataMap.get(sym);
-
             if (!priceData || priceData.length <= 1) return;
             if(String(Type_Analysis) === 'type1'){
                 await Analysis(priceData, sym, symbolConfig ,Delay_Stop ,Spread_Plus);

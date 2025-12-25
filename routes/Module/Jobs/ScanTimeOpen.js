@@ -50,7 +50,6 @@ async function startJob() {
     isRunning = true;
     const timeCurrent = getTimeGMT7("time"); // "HH:MM:SS" dạng string
     const config = await Redis.getConfigAdmin();
-
     if (!config) {
       console.error(`[JOB ${process.pid}] No config found`);
       isRunning = false;

@@ -7,12 +7,14 @@ const { getTimeGMT7 } = require('../Helpers/time');
 const Redis = require('../Redis/clientRedis');
 
 const RedisH = require('../Redis/redis.helper');
+const {getBrokerResetting} = require('../Redis/redis.helper2');
 RedisH.initRedis({
   host: '127.0.0.1',
   port: 6379,
   db: 0,          // ⚠️ PHẢI giống worker ghi
   compress: true
 });
+const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray , getAllUniqueSymbols} = require("../Redis/redis.price.query");
 
 var Color_Log_Success = "\x1b[32m%s\x1b[0m";
 var Color_Log_Error = "\x1b[31m%s\x1b[0m";
@@ -82,14 +84,14 @@ function setupWebSocketServer(port) {
             });
 
             ws.on('close', function close() {
-                const client = Client_Connected.get(ws.id);
-                if (client) {
-                    log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Client disconnected:", client.Broker);
-                    Redis.deleteBroker(client.Broker).catch(err => 
-                        log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err)
-                    );
-                    Client_Connected.delete(ws.id);
-                }
+                // const client = Client_Connected.get(ws.id);
+                // if (client) {
+                //     log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Client disconnected:", client.Broker);
+                //     Redis.deleteBroker(client.Broker).catch(err => 
+                //         log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err)
+                //     );
+                //     Client_Connected.delete(ws.id);
+                // }
                 // Stop job khi disconnect
                 stopJob(ws.id);
             });
@@ -124,8 +126,8 @@ async function startJob(client, clientId) {
                 // Lấy data từ Redis
                 const prices = await Redis.getAnalysis();
                 
-                const resetting = await Redis.getBrokerResetting();
-                const symbols = await RedisH.getUnionSymbolsAllBrokers();
+                const resetting = await getBrokerResetting();
+                const symbols = await getAllUniqueSymbols();
                 
                 // ✅ DEFENSIVE CHECK
                 const analysis = prices || { Type_1: [], Type_2: [], time_analysis: null };
@@ -161,7 +163,7 @@ async function startJob(client, clientId) {
 }
 
 // ✅ STOP JOB - BỎ this
-function stopJob(clientId) {
+async function stopJob(clientId) {
     const interval = clientIntervals.get(clientId);  // ← BỎ this
     
     if (interval) {

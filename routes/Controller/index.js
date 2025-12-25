@@ -11,6 +11,16 @@ const {  API_ALL_INFO_BROKERS ,
 
 
 const Redis = require('../Module/Redis/clientRedis');
+const RedisH2 = require('../Module/Redis/redis.helper2');
+const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
+const {deleteByPattern} = require('../Module/Redis/redis.helper2');
+const PriceFlush = require('../Module/Redis/priceBuffer.redisFlush');
+// RedisH.initRedis({
+//   host: '127.0.0.1',
+//   port: 6379,
+//   db: 0,          // ⚠️ PHẢI giống worker ghi
+//   compress: true
+// });
 
 const { authRequired, requireRole } = require('../Auth/authMiddleware');
 const { calculatePercentage } = require('../Module/Helpers/text.format');
@@ -20,19 +30,26 @@ const { calculatePercentage } = require('../Module/Helpers/text.format');
 
 /* Lấy Toàn Bộ Thông Tin Từ Redis */
 router.get(`/${API_ALL_INFO_BROKERS}`,authRequired, async function(req, res, next) {
-  const Data = await Redis.getAllBrokers();
-  return res.status(200).json(Data);
+ const data = await getAllBrokers();
+  return res.status(200).json(data);
+});
+router.get(`/${VERSION}/:symbol/getdata`,authRequired, async function(req, res, next) {
+  const { symbol } = req.params;
+ const test = await getSymbolAcrossBrokers(symbol);
+  return res.status(200).json(test);
 });
 /* Reset Tất Cả của 1 Broker*/
 router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
+  console.log("Reset Broker Endpoint Hit");
   // const Data = await Redis.getAllBrokers();
   // return res.status(200).json(Data);
   const { broker , symbol} = req.params;
-  const Broker_Check = await Redis.getBroker(broker);
+  const Broker_Check = await getBrokerMeta(broker);
+  console.log("Broker_Check:", Broker_Check);
   const PORT = Broker_Check?.port || null;
   const INDEX = Broker_Check?.index || null;
   const message = `Reset Received for Broker: ${broker} , Symbol: ${symbol}`;
-
+console.log("Broker_Check:", Broker_Check , " PORT:", PORT , " INDEX:", INDEX);
   if(PORT && INDEX !== '0' && INDEX !== 0 && INDEX !== null){
     await Redis.publish(String(PORT), JSON.stringify({
     Symbol: symbol,
@@ -65,7 +82,7 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
 });
 router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next) {
   const { broker} = req.params;
-  const Broker_Check = await Redis.getBroker(broker);
+  const Broker_Check = await RedisH.getBrokerMeta(broker);
   const PORT = Broker_Check?.port || null;
   if(PORT){
     await Redis.publish(String(PORT), JSON.stringify({
@@ -125,7 +142,7 @@ router.get(`/${VERSION}/:symbol/:broker/:type_order/:price_bid/:key_secret/order
 });
 router.get(`/${VERSION}/:symbol/:broker/test_reset`,authRequired, async function(req, res, next) {
   const { broker , symbol} = req.params;
-  const Broker_Check = await Redis.getBroker(broker);
+  const Broker_Check = await RedisH.getBrokerMeta(broker);
   const PORT = Broker_Check?.port || null;
   await Redis.publish(String(PORT), JSON.stringify({
     Symbol: symbol,
@@ -141,33 +158,65 @@ router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, n
   res.status(200).json({ message: "Reset all brokers initiated." });
 });
 router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, res, next) {
-    const deleteResult = await Redis.clearAllAppData();
+    await deleteByPattern('chart:ohlc:*');
+    await deleteByPattern('snap:*');
+    await deleteByPattern('brokers');
     return res.status(200).json({
       deleteResult
     });
 });
 
 
+// Assumptions:
+// - Redis: pub/sub client có .publish(channel, message)
+// - RedisH2: redis.helper2.js (có getRedis(), getAllBrokers())
+// - calculatePercentage(statusString): hàm của bạn (giữ nguyên)
+
 let isResetting = false;
 let resetProgress = { current: 0, total: 0, currentBroker: null, skipped: [] };
 
 async function resetBrokersLoop() {
   if (isResetting) {
-    return { 
-      success: false, 
+    return {
+      success: false,
       message: 'Reset is already in progress',
-      progress: resetProgress 
+      progress: resetProgress,
     };
   }
 
-  const allBrokers = await Redis.getAllBrokers();
-  if (allBrokers.length <= 1) {
+  const redis = RedisH2.getRedis();
+
+  // ✅ lấy list broker theo kiểu mới: SET "brokers"
+  const brokerList = await RedisH2.getAllBrokers(); // array: ['b','ab',...]
+  if (!brokerList || brokerList.length <= 1) {
     console.log('❌ No brokers to reset');
     return { success: false, message: 'No brokers to reset' };
   }
 
+  // ✅ lấy meta của tất cả broker (1 lần đầu)
+  const pipeMeta = redis.pipeline();
+  for (const b of brokerList) pipeMeta.hgetall(`broker_meta:${b}`);
+  const metaRes = await pipeMeta.exec();
+
+  const allBrokers = brokerList.map((b, i) => {
+    const [err, meta] = metaRes[i] || [];
+    const m = (!err && meta) ? meta : {};
+    return {
+      broker_: b,
+      // meta mới có thể là index hoặc indexBroker
+      indexBroker: m.indexBroker ?? m.index ?? '',
+      totalsymbol: m.totalsymbol ?? '',
+      status: m.status ?? '',
+    };
+  });
+
   isResetting = true;
-  resetProgress = { current: 0, total: allBrokers.length, currentBroker: null, skipped: [] };
+  resetProgress = {
+    current: 0,
+    total: allBrokers.length,
+    currentBroker: null,
+    skipped: [],
+  };
 
   console.log(`🔄 Starting reset for ${allBrokers.length} brokers...`);
   console.log(`📋 Broker list: ${allBrokers.map(b => b.broker_).join(', ')}`);
@@ -175,7 +224,14 @@ async function resetBrokersLoop() {
   try {
     for (let index = 0; index < allBrokers.length; index++) {
       const broker = allBrokers[index];
-      
+
+      const idxNum = Number(broker.indexBroker);
+      if (idxNum === 0 || broker.indexBroker === '0') {
+        console.log(`⏭️ [${index + 1}/${allBrokers.length}] Skipping broker ${broker.broker_} at index 0`);
+        resetProgress.current = index + 1;
+        continue;
+      }
+
       resetProgress.current = index + 1;
       resetProgress.currentBroker = broker.broker_;
 
@@ -186,68 +242,68 @@ async function resetBrokersLoop() {
       while (!success && retryCount < maxRetries) {
         try {
           console.log(`\n🔄 [${index + 1}/${allBrokers.length}] Processing: ${broker.broker_} (attempt ${retryCount + 1})`);
-          
-          await Redis.publish("RESET_ALL", JSON.stringify({
-            Symbol: "ALL-BROKERS",
-            Broker: broker.broker_,
-          }));
 
-          const maxWaitTime = 120000; // 120 giây
+          // ✅ publish reset
+          await Redis.publish(
+            "RESET_ALL",
+            JSON.stringify({
+              Symbol: "ALL-BROKERS",
+              Broker: broker.broker_, // broker_ lowercase
+            })
+          );
+
+          const maxWaitTime = 120000; // 120s
           const startTime = Date.now();
           let lastPercentage = 0;
-          let zeroCheckCount = 0; // ✅ Đếm số lần check = 0%
-          const maxZeroChecks = 5; // ✅ Số lần check = 0% trước khi retry
+
+          let zeroCheckCount = 0;
+          const maxZeroChecks = 5;
 
           while (true) {
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Poll mỗi 1s
-
+            await new Promise(resolve => setTimeout(resolve, 1000)); // poll 1s
             const elapsed = Date.now() - startTime;
-            
-            // ✅ Timeout check
+
             if (elapsed > maxWaitTime) {
               console.log(`⏱️ [${index + 1}/${allBrokers.length}] Timeout for ${broker.broker_} at ${lastPercentage}%`);
               break;
             }
 
-            const updatedBrokers = await Redis.getAllBrokers();
-            const currentBroker = updatedBrokers.find(b => b.broker_ === broker.broker_);
+            // ✅ poll đúng theo kiểu mới: broker_meta:<broker_>.status
+            const [statusRaw, totalSymbolRaw] = await Promise.all([
+              redis.hget(`broker_meta:${broker.broker_}`, 'status'),
+              redis.hget(`broker_meta:${broker.broker_}`, 'totalsymbol'),
+            ]);
 
-            if (!currentBroker) {
-              console.log(`⚠️ Broker ${broker.broker_} not found in list!`);
-              break;
-            }
-
-            if (!currentBroker.status) {
+            if (statusRaw == null) {
               console.log(`⚠️ Broker ${broker.broker_} has no status field!`);
               break;
             }
 
-            const percentage = Number(Number(calculatePercentage(String(currentBroker.status))).toFixed(0));
-            
-            // ✅ CHECK: Nếu = 0% liên tiếp
+            const totalSym = Number(totalSymbolRaw ?? broker.totalsymbol ?? 0);
+            const percentage = Number(Number(calculatePercentage(String(statusRaw))).toFixed(0));
+
+            // ✅ check 0% liên tiếp
             if (percentage === 0) {
               zeroCheckCount++;
               console.log(`⚠️ [${index + 1}/${allBrokers.length}] ${broker.broker_}: 0% (check ${zeroCheckCount}/${maxZeroChecks})`);
-              
               if (zeroCheckCount >= maxZeroChecks) {
                 console.log(`🔁 [${index + 1}/${allBrokers.length}] ${broker.broker_}: Still 0% after ${maxZeroChecks} checks, will retry...`);
-                break; // Thoát loop để retry
+                break;
               }
             } else {
-              // Reset counter nếu percentage > 0
               zeroCheckCount = 0;
             }
-            
+
             lastPercentage = percentage;
 
-            // Log mỗi 10 giây
+            // log mỗi ~10s
             if (elapsed % 10000 < 1000) {
-              console.log(`⏳ [${index + 1}/${allBrokers.length}] ${broker.broker_}: ${percentage}% (${Math.round(elapsed/1000)}s)`);
+              console.log(`⏳ [${index + 1}/${allBrokers.length}] ${broker.broker_}: ${percentage}% (${Math.round(elapsed / 1000)}s)`);
             }
 
-            // ✅ SUCCESS: Đạt 30%
-            if (percentage >= 30) {
-              console.log(`✅ [${index + 1}/${allBrokers.length}] ${broker.broker_} reached ${percentage}%`);
+            // ✅ SUCCESS: >=30% hoặc totalsymbol nhỏ
+            if (percentage >= 30 || totalSym <= 10) {
+              console.log(`✅ [${index + 1}/${allBrokers.length}] ${broker.broker_} reached ${percentage}% (totalsymbol=${totalSym})`);
               success = true;
               break;
             }
@@ -257,12 +313,11 @@ async function resetBrokersLoop() {
             retryCount++;
             if (retryCount < maxRetries) {
               console.log(`🔁 [${index + 1}/${allBrokers.length}] Retrying ${broker.broker_} (${retryCount}/${maxRetries})...`);
-              await new Promise(resolve => setTimeout(resolve, 5000)); // Đợi 5s trước khi retry
+              await new Promise(resolve => setTimeout(resolve, 5000));
             }
           }
-
         } catch (error) {
-          console.error(`❌ Error processing ${broker.broker_}:`, error.message);
+          console.error(`❌ Error processing ${broker.broker_}:`, error?.message || error);
           retryCount++;
           if (retryCount < maxRetries) {
             await new Promise(resolve => setTimeout(resolve, 5000));
@@ -284,10 +339,10 @@ async function resetBrokersLoop() {
     console.log('====================================\n');
 
     return { success: true, message: 'Completed', skipped: resetProgress.skipped };
-
   } finally {
     isResetting = false;
   }
 }
+
 
 module.exports = router;

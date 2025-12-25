@@ -13,6 +13,8 @@ RedisH.initRedis({
   db: 0,          // ⚠️ PHẢI giống worker ghi
   compress: true
 });
+
+const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Redis/redis.price.query");
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
 // const e = require('express');
@@ -30,7 +32,6 @@ const Symbols_Tracked = "";
 
 const {log , colors} = require('../Helpers/Log');
 const {formatString , normSym} = require('../Helpers/text.format');
-const { console } = require('inspector');
 
 function setupWebSocketServer(port) {
 
@@ -62,10 +63,8 @@ function setupWebSocketServer(port) {
         wss.clients.forEach(async function each(ws) {
             //Lấy Thông Tin của 1 Broker
             // const data = await Redis.getBroker(ws.Broker);
-            const list = await RedisH.getBroker('abc');
-        console.log(list.length);
-        console.log(list[0]);
-
+            // console.log("WS INFO BROKER - ", ws.Broker);
+            const list = await getAllPricesByBroker(ws.Broker);
             ws.send(JSON.stringify({time: getTimeGMT7() , data: list }));
         });
     }, 200);

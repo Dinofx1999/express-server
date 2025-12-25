@@ -29,6 +29,7 @@ const Symbols_Tracked = "";
 
 const {log , colors} = require('../Helpers/Log');
 const {formatString , normSym} = require('../Helpers/text.format');
+const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray , getBestSymbolByIndex} = require("../Redis/redis.price.query");
 
 function setupWebSocketServer(port) {
     // Tạo HTTP server trước
@@ -58,8 +59,8 @@ function setupWebSocketServer(port) {
     const interval = setInterval(function ping() {
         wss.clients.forEach(async function each(ws) {
             //Lấy giá của 1 Symbol của tất cả Broker
-           const brokers = await RedisH.Broker_names();
-
+           const brokers = await getAllBrokerMetaArray();
+            // console.log(brokers);
             ws.send(JSON.stringify({time: getTimeGMT7() , data: brokers }));
         });
     }, 500);

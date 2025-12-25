@@ -10,8 +10,7 @@ RedisH.initRedis({
   port: 6379,
   db: 0,          // ⚠️ PHẢI giống worker ghi
   compress: true
-});
-
+});const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray , getAllUniqueSymbols} = require("../Redis/redis.price.query");
 const requestCounts = new Map();
 const MAX_REQUESTS = 10;
 const TIME_WINDOW = 1000;
@@ -74,8 +73,7 @@ function setupWebSocketServer(port) {
                 }
 
                 // 2️⃣ Lấy TẤT CẢ data 1 lần duy nhấtss
-                const dataMap = await RedisH.getSymbolAllBroker(symbols);
-                
+                const dataMap = await getSymbolAcrossBrokers(symbols);
                 const time = getTimeGMT7();
 
                 // 3️⃣ Gửi data cho từng group clients

@@ -51,6 +51,9 @@ function safeKeyPart(s) {
 function keySymbols(broker_) { return `broker:${safeKeyPart(broker_)}:symbols`; }
 function keyMeta(broker_) { return `broker:${safeKeyPart(broker_)}:meta`; }
 function keyStream(broker_) { return `broker:${safeKeyPart(broker_)}:stream`; }
+function keySymbolMeta(broker_) {
+  return `broker:${safeKeyPart(broker_)}:meta_symbol`;
+}
 
 // ON-DEMAND: store OHLC separate key
 function keyChartOHLC(broker_, sym, tf) {
@@ -474,7 +477,8 @@ async function saveBrokerBatch(payload) {
   const metaKey = keyMeta(broker_);
 
   // ✅ key OHLC riêng (không timeframe)
-  const keyChartOHLC = (b, s) => `chart:ohlc:${safeKeyPart(b)}:${String(s).toUpperCase().trim()}`;
+  const keyChartOHLC = (b, s) =>
+    `chart:ohlc:${safeKeyPart(b)}:${String(s).toUpperCase().trim()}`;
 
   // =====================
   // BUILD SYMBOL HMSET (LITE: KHÔNG LƯU OHLC)
@@ -526,8 +530,8 @@ async function saveBrokerBatch(payload) {
   // META
   // =====================
   const meta = {
-    broker: broker,
-    broker_: broker_,
+    broker,
+    broker_,
     index: String(payload.index ?? ''),
     port: String(payload.port ?? ''),
     version: String(payload.version ?? ''),
@@ -576,8 +580,8 @@ async function saveBrokerBatch(payload) {
   // =====================
   // DEBUG CONFIRM (optional)
   // =====================
-  if (ms > 20) {
-    console.log(`[SAVE OK] broker=${broker_} symbols=${wrote} time=${ms}ms`);
+  if (ms > 60) {
+    console.log(`[SAVE SLOW] broker=${broker_} symbols=${wrote} time=${ms}ms`);
   }
 
   return {
@@ -588,6 +592,663 @@ async function saveBrokerBatch(payload) {
     keys: { symbolsKey, metaKey },
   };
 }
+
+/**
+ * Thủ công lưu toàn bộ priceBuffer hiện tại vào Redis
+ * Dùng để test khi flush định kỳ chưa chạy hoặc muốn force lưu ngay
+ * @returns {Object} kết quả lưu
+ */
+async function saveAllBroker() {if (priceBuffer.size === 0) {
+    console.log('[saveAllBrokerToRedis] Buffer empty, nothing to save');
+    return { ok: false, wrote: 0, reason: 'empty buffer' };
+  }
+
+  await RedisH.ensureConnected();
+  const client = RedisH.getRedis();
+
+  const pipeline = client.pipeline();
+  const now = Date.now();
+
+  let count = 0;
+  for (const [key, data] of priceBuffer) {
+    const redisKey = `prices:${key}`;
+
+    pipeline.hset(redisKey,
+      'bid', String(data.bid ?? '0'),
+      'ask', String(data.ask ?? '0'),
+      'spread', String(data.spread ?? '0'),
+      'digit', String(data.digit ?? '5'),
+      'trade', String(data.trade ?? 'false').toUpperCase(),
+      'timedelay', String(data.timedelay ?? '0'),
+      'broker_sync', String(data.broker_sync ?? ''),
+      'last_reset', String(data.last_reset ?? ''),
+      'timecurrent', String(data.timecurrent ?? ''),
+      'broker', String(data.broker ?? ''),
+      'symbol', String(data.symbol ?? ''),
+      'updatedAt', String(now)
+    );
+
+    pipeline.expire(redisKey, 3600);
+    count++;
+  }
+
+  try {
+    const results = await pipeline.exec();
+    const errors = results.filter(([err]) => err !== null);
+
+    if (errors.length > 0) {
+      console.error(`[saveAllBrokerToRedis] Failed on ${errors.length}/${count} keys`);
+      return { ok: false, wrote: count, errors: errors.length };
+    }
+
+    console.log(`[saveAllBrokerToRedis] SUCCESS: Saved ${count} prices to Redis`);
+    return { ok: true, wrote: count };
+  } catch (err) {
+    console.error('[saveAllBrokerToRedis] Error:', err.message);
+    return { ok: false, error: err.message };
+  }}
+
+// ✅ ADD THESE 2 FUNCTIONS INTO redis.helper.js (RedisH)
+// - saveBrokerPrice(payload): handle PRICE_SNAP (Symbols[] no ohlc)
+// - saveBrokerOHLC(payload): handle OHLC_SNAP (Symbols[] with ohlc)
+// Copy-paste đúng vào file redis.helper.js của bạn (cùng scope với saveBrokerBatch)
+
+async function saveBrokerPrice(payload, options = {}) {
+  await ensureConnected();
+  const r = assertRedis();
+  const cfg = r.__cfg || _cfg;
+
+  const {
+    publishTicks = false, // bật nếu bạn muốn PubSub tick (mặc định OFF cho nhẹ)
+  } = options;
+
+  if (!payload) throw new Error('saveBrokerPrice: payload missing');
+
+  const broker = String(payload.broker || '').trim();
+  const broker_ = String(payload.broker_ || broker).trim();
+  if (!broker_) throw new Error('saveBrokerPrice: broker_ is required');
+
+  const symbolsArr = Array.isArray(payload.Symbols) ? payload.Symbols : [];
+  if (!symbolsArr.length) return { ok: true, broker_, wrote: 0, ms: 0 };
+
+  const t0 = Date.now();
+
+  const symbolsKey = keySymbols(broker_);
+  const metaKey = keyMeta(broker_);
+
+  const symbolArgs = [];
+  let wrote = 0;
+
+  // pipeline write (1 round)
+  const pipe = r.pipeline();
+
+  for (const s of symbolsArr) {
+    if (!s) continue;
+
+    const sym = String(s.symbol || s.symbol_raw || '').toUpperCase().trim();
+    if (!sym) continue;
+
+    // ✅ đảm bảo PRICE_SNAP không lưu ohlc
+    const lite = { ...s };
+    if (lite.ohlc) delete lite.ohlc;
+
+    // ✅ HMSET field=SYM value=packed lite
+    symbolArgs.push(sym, packValue(lite, cfg));
+    wrote++;
+
+    // ✅ optional PubSub tick
+    if (publishTicks) {
+      // publish realtime nhẹ, không block write redis
+      // (không await từng cái để tránh nghẽn)
+      publishTickFromSymbol(broker_, lite).catch(() => {});
+    }
+  }
+
+  ensureEvenArgs(symbolArgs);
+
+  // ✅ update meta nhẹ (không đụng totalsymbol/batch nếu bạn không gửi)
+  const meta = {
+    broker,
+    broker_,
+    index: String(payload.index ?? ''),
+    port: String(payload.port ?? ''),
+    version: String(payload.version ?? ''),
+    typeaccount: String(payload.typeaccount ?? ''),
+    totalsymbol: String(payload.totalsymbol ?? ''),
+    timecurent: String(payload.timecurent ?? ''),
+    timeUpdated: String(payload.timeUpdated ?? ''),
+    auto_trade: String(payload.auto_trade ?? ''),
+    status: String(payload.status ?? ''),
+    lastWriteMs: String(Date.now()),
+    lastPriceWriteMs: String(Date.now()),
+    lastBatchSymbols: String(wrote),
+    // bạn có thể thêm field khác nếu cần
+  };
+
+  const metaArgs = ensureEvenArgs(toFlatArgs(meta));
+
+  if (symbolArgs.length >= 2) pipe.hmset(symbolsKey, ...symbolArgs);
+  pipe.hmset(metaKey, ...metaArgs);
+
+  // TTL nếu bạn có set
+  if (cfg.ttlSeconds > 0) {
+    pipe.expire(metaKey, cfg.ttlSeconds);
+    if (symbolArgs.length >= 2) pipe.expire(symbolsKey, cfg.ttlSeconds);
+  }
+
+  const res = await pipe.exec();
+  for (const [err] of res) {
+    if (err) throw err;
+  }
+
+  const ms = Date.now() - t0;
+  return { ok: true, broker_, wrote, ms, keys: { symbolsKey, metaKey } };
+}
+
+async function saveBrokerOHLC(payload, options = {}) {
+  await ensureConnected();
+  const r = assertRedis();
+  const cfg = r.__cfg || _cfg;
+
+  const {
+    publish = false, // bật nếu bạn muốn PubSub OHLC theo tf/symbol (mặc định OFF)
+  } = options;
+
+  if (!payload) throw new Error('saveBrokerOHLC: payload missing');
+
+  const broker = String(payload.broker || '').trim();
+  const broker_ = String(payload.broker_ || broker).trim();
+  if (!broker_) throw new Error('saveBrokerOHLC: broker_ is required');
+
+  const tf = String(payload.TF || 'M1').toUpperCase().trim();
+
+  const symbolsArr = Array.isArray(payload.Symbols) ? payload.Symbols : [];
+  if (!symbolsArr.length) return { ok: true, broker_, wrote: 0, ms: 0 };
+
+  const t0 = Date.now();
+
+  // ✅ pipeline: set ohlc keys
+  const pipe = r.pipeline();
+  let wrote = 0;
+
+  for (const s of symbolsArr) {
+    if (!s) continue;
+
+    const sym = String(s.symbol || s.symbol_raw || '').toUpperCase().trim();
+    if (!sym) continue;
+
+    const ohlcArr = Array.isArray(s.ohlc) ? s.ohlc : null;
+    if (!ohlcArr || !ohlcArr.length) continue;
+
+    // ✅ key theo helper bạn đang dùng (không tf) -> chart:ohlc:<broker_>:<SYMBOL>
+    // Nếu bạn muốn phân TF: đổi sang keyChartOHLC(broker_, sym, tf)
+    const k = keyChartOHLC(broker_, sym);
+
+    pipe.set(k, packValue(ohlcArr, cfg));
+    if (cfg.ttlSeconds > 0) pipe.expire(k, cfg.ttlSeconds);
+
+    wrote++;
+
+    if (publish) {
+      publishOHLC(broker_, sym, tf, ohlcArr).catch(() => {});
+    }
+  }
+
+  // ✅ update meta để bạn debug lag
+  const metaKey = keyMeta(broker_);
+  const meta = {
+    broker,
+    broker_,
+    lastOhlcWriteMs: String(Date.now()),
+    lastOhlcTf: tf,
+    lastOhlcSymbols: String(wrote),
+    timeUpdated: String(payload.timeUpdated ?? ''),
+  };
+  pipe.hmset(metaKey, ...ensureEvenArgs(toFlatArgs(meta)));
+
+  const res = await pipe.exec();
+  for (const [err] of res) {
+    if (err) throw err;
+  }
+
+  const ms = Date.now() - t0;
+  return { ok: true, broker_, tf, wrote, ms };
+}
+
+
+async function savePriceData(payload) {
+  await ensureConnected();
+  const r = assertRedis();
+  const cfg = r.__cfg || _cfg;
+
+  const t0 = Date.now();
+
+  // Validate
+  if (!payload) throw new Error('savePriceData: payload missing');
+
+  const broker = String(payload.broker || '').trim();
+  const broker_ = String(payload.broker_ || broker).trim();
+  if (!broker_) throw new Error('savePriceData: broker_ is required');
+
+  const symbolsArr = Array.isArray(payload.symbols) ? payload.symbols : [];
+  if (symbolsArr.length === 0) {
+    console.warn('[PRICE] EMPTY symbols:', broker_);
+    return { ok: true, broker_, wrote: 0, ms: 0 };
+  }
+
+  // Keys
+  const symbolsKey = keySymbols(broker_);
+  const metaKey = keyMeta(broker_);
+
+  // Pipeline
+  const pipe = r.pipeline();
+  let wrote = 0;
+  const tickPromises = [];
+
+  for (const s of symbolsArr) {
+    if (!s) continue;
+
+    const sym = String(s.symbol || '').toUpperCase().trim();
+    if (!sym) continue;
+
+    // Get existing data to merge (avoid losing OHLC ref if set separately)
+    const existing = await r.hget(symbolsKey, sym);
+    let symbolData = existing ? unpackValue(existing, cfg) : {};
+
+    // Update ONLY price fields
+    symbolData = {
+      ...symbolData,
+      symbol: sym,
+      bid: s.bid,
+      ask: s.ask,
+      bid_mdf: s.bid_mdf,
+      ask_mdf: s.ask_mdf,
+      spread: s.spread,
+      spread_mdf: s.spread_mdf,
+      digit: s.digit,
+      timecurrent: s.timecurrent,
+      timedelay: s.timedelay,
+      trade: s.trade,
+      broker_sync: s.broker_sync,
+      longcandle: s.longcandle,
+      longcandle_mdf: s.longcandle_mdf,
+      symbol_raw: s.symbol_raw,
+    };
+
+    // NO OHLC
+    delete symbolData.ohlc;
+
+    pipe.hset(symbolsKey, sym, packValue(symbolData, cfg));
+    wrote++;
+
+    // Publish tick realtime (if trade = TRUE)
+    if (String(s.trade || '').toUpperCase() === 'TRUE') {
+      tickPromises.push(
+        publishTickFromSymbol(broker_, symbolData).catch(e => 
+          console.error('[PRICE] Publish tick error:', sym, e.message)
+        )
+      );
+    }
+  }
+
+  // Update meta with timestamp
+  pipe.hmset(
+    metaKey,
+    'broker', broker,
+    'broker_', broker_,
+    'timecurent', String(payload.timecurent || Date.now()),
+    'lastWriteMs', String(Date.now()),
+    'lastPriceUpdate', String(Date.now())
+  );
+
+  if (cfg.ttlSeconds > 0) {
+    pipe.expire(symbolsKey, cfg.ttlSeconds);
+    pipe.expire(metaKey, cfg.ttlSeconds);
+  }
+
+  // Execute
+  const res = await pipe.exec();
+  for (const [err] of res) {
+    if (err) {
+      console.error('[PRICE] REDIS ERROR:', err);
+      throw err;
+    }
+  }
+
+  // Wait for tick publishes (non-blocking)
+  Promise.all(tickPromises).catch(() => {});
+
+  const ms = Date.now() - t0;
+
+  if (ms > 50) {
+    console.log(`[PRICE] broker=${broker_} symbols=${wrote} time=${ms}ms`);
+  }
+
+  return {
+    ok: true,
+    broker_,
+    wrote,
+    ms,
+    type: 'PRICE_DATA',
+  };
+}
+
+/**
+ * Handle OHLC_DATA message from MT4 (NEW - Heavy, Infrequent)
+ * - Only updates: OHLC array
+ * - Stores in chart:ohlc:* keys
+ * - Publishes to OHLC channel if watched
+ * 
+ * Usage:
+ *   await RedisH.saveOHLCData({
+ *     broker: 'ABC',
+ *     broker_: 'abc-broker',
+ *     symbols: [
+ *       {
+ *         symbol: 'EURUSD',
+ *         ohlc: [
+ *           {time, open, high, low, close},
+ *           ...
+ *         ]
+ *       }
+ *     ]
+ *   });
+ */
+
+async function saveBrokerMeta(payload) {
+  await ensureConnected();
+  const r = assertRedis();
+  const cfg = r.__cfg || _cfg;
+
+  const broker = String(payload.broker || '').trim();
+  const broker_ = String(payload.broker_ || broker).trim();
+  if (!broker_) throw new Error('saveBrokerMeta: broker_ is required');
+
+  const arr = Array.isArray(payload.META_Symbols) ? payload.META_Symbols : [];
+  if (!arr.length) return { ok: true, broker_, wrote: 0, ms: 0 };
+
+  const t0 = Date.now();
+  const pipe = r.pipeline();
+
+  const metaArgs = [];
+  let wrote = 0;
+
+  for (const s of arr) {
+    if (!s) continue;
+    const sym = String(s.symbol || s.symbol_raw || '').toUpperCase().trim();
+    if (!sym) continue;
+
+    // chỉ lưu 3 thứ bạn muốn
+    const metaLite = {
+      symbol: sym,
+      digit: s.digit,
+      trade: s.trade,
+      timetrade: s.timetrade || [],
+      ts: Date.now(),
+    };
+
+    metaArgs.push(sym, packValue(metaLite, cfg));
+    wrote++;
+  }
+
+  ensureEvenArgs(metaArgs);
+
+  const symMetaKey = keySymbolMeta(broker_);
+  if (metaArgs.length >= 2) pipe.hmset(symMetaKey, ...metaArgs);
+
+  // TTL nếu bạn dùng
+  if (cfg.ttlSeconds > 0) pipe.expire(symMetaKey, cfg.ttlSeconds);
+
+  // cập nhật broker meta chung (optional, để debug)
+  pipe.hmset(keyMeta(broker_), 'lastMetaMs', String(Date.now()), 'lastMetaCount', String(wrote));
+
+  const res = await pipe.exec();
+  for (const [err] of res) if (err) throw err;
+
+  return { ok: true, broker_, wrote, ms: Date.now() - t0, key: symMetaKey };
+}
+
+async function saveOHLCData(payload) {
+  await ensureConnected();
+  const r = assertRedis();
+  const cfg = r.__cfg || _cfg;
+
+  const t0 = Date.now();
+
+  // Validate
+  if (!payload) throw new Error('saveOHLCData: payload missing');
+
+  const broker = String(payload.broker || '').trim();
+  const broker_ = String(payload.broker_ || broker).trim();
+  if (!broker_) throw new Error('saveOHLCData: broker_ is required');
+
+  const symbolsArr = Array.isArray(payload.symbols) ? payload.symbols : [];
+  if (symbolsArr.length === 0) {
+    console.warn('[OHLC] EMPTY symbols:', broker_);
+    return { ok: true, broker_, wrote: 0, ms: 0 };
+  }
+
+  // Pipeline
+  const pipe = r.pipeline();
+  let wrote = 0;
+  const publishPromises = [];
+
+  for (const s of symbolsArr) {
+    if (!s) continue;
+
+    const sym = String(s.symbol || '').toUpperCase().trim();
+    if (!sym) continue;
+
+    const ohlcArr = Array.isArray(s.ohlc) ? s.ohlc : [];
+    if (ohlcArr.length === 0) continue;
+
+    // Store OHLC in chart key (M1 timeframe)
+    const tf = 'M1'; // MT4 sends M1, can extend for other TFs
+    const ohlcKey = keyChartOHLC(broker_, sym, tf);
+
+    pipe.set(ohlcKey, packValue(ohlcArr, cfg));
+
+    if (cfg.ttlSeconds > 0) {
+      pipe.expire(ohlcKey, cfg.ttlSeconds);
+    }
+
+    wrote++;
+
+    // Publish OHLC if symbol is watched (non-blocking)
+    publishPromises.push(
+      isChartActive(broker_, sym, tf).then(active => {
+        if (active) {
+          return publishOHLC(broker_, sym, tf, ohlcArr);
+        }
+      }).catch(e => 
+        console.error('[OHLC] Publish error:', sym, e.message)
+      )
+    );
+  }
+
+  // Update meta timestamp
+  const metaKey = keyMeta(broker_);
+  pipe.hmset(
+    metaKey,
+    'lastOHLCUpdate', String(Date.now())
+  );
+
+  // Execute
+  const res = await pipe.exec();
+  for (const [err] of res) {
+    if (err) {
+      console.error('[OHLC] REDIS ERROR:', err);
+      throw err;
+    }
+  }
+
+  // Wait for publishes (non-blocking)
+  Promise.all(publishPromises).catch(() => {});
+
+  const ms = Date.now() - t0;
+
+  if (ms > 100) {
+    console.log(`[OHLC] broker=${broker_} symbols=${wrote} time=${ms}ms`);
+  }
+
+  return {
+    ok: true,
+    broker_,
+    wrote,
+    ms,
+    type: 'OHLC_DATA',
+  };
+}
+
+
+
+/**
+ * RedisH-first: Lấy details cho nhiều symbols từ Redis theo format saveBrokerBatch()
+ * - metaKey = keyMeta(broker_)
+ * - symbolsKey = keySymbols(broker_)
+ * - symbolsKey hash: field = SYMBOL, value = packValue(lite)
+ *
+ * Return: Map<symbol, details[]>
+ */
+async function getMultipleSymbolDetails_RedisH(symbols) {
+  if (!symbols || symbols.length === 0) return new Map();
+
+  await ensureConnected();
+  const r = assertRedis();
+  const cfg = r.__cfg || _cfg;
+
+  // ✅ normalize symbol giống lúc lưu (saveBrokerBatch dùng toUpperCase)
+  const normSymbols = symbols
+    .map((s) => String(s || "").toUpperCase().trim())
+    .filter(Boolean);
+
+  // ✅ luôn tạo map theo input => không bao giờ Map(0) khi input hợp lệ
+  const resultMap = new Map();
+  for (const sym of normSymbols) resultMap.set(sym, []);
+
+  if (normSymbols.length === 0) return resultMap;
+
+  const unpack = (v) => {
+    if (v == null) return null;
+    try {
+      if (typeof unpackValue === "function") return unpackValue(v, cfg);
+      return JSON.parse(v);
+    } catch {
+      return null;
+    }
+  };
+
+  const isTrue = (v) => {
+    const s = String(v ?? "").toLowerCase();
+    return s === "true" || s === "1" || s === "yes";
+  };
+
+  // =========================
+  // 1) SCAN meta keys đúng pattern bạn đang có
+  // =========================
+  const META_PATTERN = "broker:*:meta";
+  const metaKeys = [];
+  let cursor = "0";
+
+  do {
+    const [next, keys] = await r.scan(cursor, "MATCH", META_PATTERN, "COUNT", 500);
+    cursor = next;
+    if (keys && keys.length) metaKeys.push(...keys);
+  } while (cursor !== "0");
+
+  if (metaKeys.length === 0) return resultMap;
+
+  // =========================
+  // 2) Pipeline: HGETALL meta
+  // =========================
+  const pipeMeta = r.pipeline();
+  metaKeys.forEach((k) => pipeMeta.hgetall(k));
+  const metaExec = await pipeMeta.exec();
+
+  // =========================
+  // 3) Build list broker active + derive broker_
+  // metaKey format: broker:{broker_}:meta
+  // =========================
+  const activeBrokers = [];
+  for (let i = 0; i < metaExec.length; i++) {
+    const [err, meta] = metaExec[i] || [];
+    if (err) continue;
+    if (!meta || Object.keys(meta).length === 0) continue;
+
+    const metaKey = metaKeys[i]; // broker:abc:meta
+    const parts = String(metaKey).split(":");
+    const broker_ = parts.length >= 3 ? parts[1] : String(meta.broker_ || "").trim();
+    if (!broker_) continue;
+
+    if (!isTrue(meta.status)) continue;
+
+    activeBrokers.push({
+      broker_: broker_,
+      broker: String(meta.broker || broker_),
+      status: String(meta.status || ""),
+      index: String(meta.index || ""),
+      auto_trade: String(meta.auto_trade || ""),
+      typeaccount: String(meta.typeaccount || ""),
+    });
+  }
+
+  if (activeBrokers.length === 0) return resultMap;
+
+  // =========================
+  // 4) Pipeline: HMGET symbols hash theo từng broker
+  // symbolsKey format: broker:{broker_}:symbols
+  // =========================
+  const pipeSym = r.pipeline();
+  activeBrokers.forEach((b) => {
+    const symbolsKey = `broker:${b.broker_}:symbols`;
+    pipeSym.hmget(symbolsKey, ...normSymbols);
+  });
+
+  const symExec = await pipeSym.exec();
+
+  // =========================
+  // 5) Fill Map<symbol, details[]>
+  // =========================
+  for (let i = 0; i < symExec.length; i++) {
+    const [err, values] = symExec[i] || [];
+    if (err) continue;
+
+    const b = activeBrokers[i];
+    if (!Array.isArray(values)) continue;
+
+    for (let j = 0; j < values.length; j++) {
+      const packed = values[j];
+      if (!packed) continue; // field không tồn tại
+
+      const sym = normSymbols[j];
+      const symbolInfo = unpack(packed);
+      if (!symbolInfo) continue;
+
+      // ✅ filter trade như code bạn
+      if (String(symbolInfo.trade ?? "").toUpperCase() !== "TRUE") continue;
+
+      const details = {
+        Broker: b.broker,
+        Broker_: b.broker_,
+        Status: b.status,
+        Index: b.index,
+        Auto_Trade: b.auto_trade,
+        Typeaccount: b.typeaccount,
+        ...symbolInfo,
+      };
+
+      resultMap.get(sym).push(details);
+    }
+  }
+
+  // ✅ sort theo Index như bạn
+  for (const [sym, arr] of resultMap) {
+    arr.sort((a, b) => parseFloat(a.Index || 0) - parseFloat(b.Index || 0));
+  }
+
+  return resultMap;
+}
+
 
 
 function keyChartOHLC(broker_, symbol) {
@@ -608,8 +1269,192 @@ async function getChartOHLC(broker_, symbol) {
 // =====================
 // READ
 // =====================
-async function getBrokerMeta(broker_) {
+
+// ✅ Đếm tổng broker (dựa vào key meta: broker:*:meta)
+// options.onlyActive=true -> chỉ đếm broker status === "True"
+async function getTotalBrokers(options = {}) {
+  const { onlyActive = false } = options;
+
   await ensureConnected();
+  const r = assertRedis();
+
+  let total = 0;
+
+  // Duyệt theo SCAN để không chết Redis khi nhiều key
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await r.scan(cursor, 'MATCH', 'broker:*:meta', 'COUNT', 1000);
+    cursor = nextCursor;
+
+    if (!keys || keys.length === 0) continue;
+
+    if (!onlyActive) {
+      total += keys.length;
+      continue;
+    }
+
+    // onlyActive: pipeline HMGET status
+    const pipe = r.pipeline();
+    for (const k of keys) pipe.hmget(k, 'status');
+    const res = await pipe.exec();
+
+    for (const item of res) {
+      const err = item?.[0];
+      const data = item?.[1]; // hmget -> [status]
+      if (err) continue;
+
+      const status = Array.isArray(data) ? data[0] : null;
+      if (String(status) === 'True') total += 1;
+    }
+  } while (cursor !== '0');
+
+  return total;
+}
+
+async function getAllBrokers(options = {}) {
+  const {
+    onlyActive = false,
+    withSymbols = true,
+    withOhlc = false, // ⚠️ nặng, off mặc định
+  } = options;
+
+  await ensureConnected();
+  const r = assertRedis();
+  const cfg = r.__cfg || _cfg;
+
+  const brokers = [];
+  let cursor = '0';
+
+  // helper: từ metaKey -> broker_
+  const parseBrokerFromMetaKey = (metaKey) => {
+    // broker:<broker_>:meta
+    const parts = String(metaKey).split(':');
+    // ["broker", "<broker_>", "meta"]
+    return parts.length >= 3 ? parts[1] : '';
+  };
+
+  // key OHLC riêng (như bạn saveBrokerBatch)
+  const keyChartOHLC = (b, s) => `chart:ohlc:${safeKeyPart(b)}:${String(s).toUpperCase().trim()}`;
+
+  do {
+    const [nextCursor, metaKeys] = await r.scan(cursor, 'MATCH', 'broker:*:meta', 'COUNT', 300);
+    cursor = nextCursor;
+
+    if (!metaKeys || metaKeys.length === 0) continue;
+
+    // 1) Lấy meta hàng loạt
+    const pipeMeta = r.pipeline();
+    for (const mk of metaKeys) pipeMeta.hgetall(mk);
+    const metaRes = await pipeMeta.exec();
+
+    for (let i = 0; i < metaKeys.length; i++) {
+      const metaKey = metaKeys[i];
+      const [err, meta] = metaRes[i] || [];
+      if (err || !meta || Object.keys(meta).length === 0) continue;
+
+      const broker_ = meta.broker_ || parseBrokerFromMetaKey(metaKey);
+      if (!broker_) continue;
+
+      if (onlyActive && String(meta.status) !== 'True') continue;
+
+      const item = {
+        // meta chuẩn
+        broker: meta.broker || '',
+        broker_: broker_,
+        index: meta.index ?? '',
+        port: meta.port ?? '',
+        version: meta.version ?? '',
+        typeaccount: meta.typeaccount ?? '',
+        totalsymbol: meta.totalsymbol ?? '',
+        batch: meta.batch ?? '',
+        totalBatches: meta.totalBatches ?? '',
+        timecurent: meta.timecurent ?? '',
+        timeUpdated: meta.timeUpdated ?? '',
+        auto_trade: meta.auto_trade ?? '',
+        status: meta.status ?? '',
+        lastWriteMs: meta.lastWriteMs ?? '',
+        lastBatchSymbols: meta.lastBatchSymbols ?? '',
+
+        // data symbols
+        OHLC_Symbols: [],
+      };
+
+      // 2) Lấy symbols (hash broker:<broker_>:symbols)
+      if (withSymbols) {
+        const symbolsKey = `broker:${broker_}:symbols`;
+        let hmap = null;
+
+        try {
+          hmap = await r.hgetall(symbolsKey);
+        } catch (e) {
+          hmap = null;
+        }
+
+        if (hmap && Object.keys(hmap).length) {
+          const symArr = [];
+          for (const [sym, packed] of Object.entries(hmap)) {
+            if (!packed) continue;
+
+            let obj = null;
+            try {
+              // bạn đang dùng packValue/unpackValue -> dùng unpackValue nếu có
+              obj = typeof unpackValue === 'function' ? unpackValue(packed, cfg) : JSON.parse(packed);
+            } catch (_) {
+              obj = null;
+            }
+
+            if (!obj) continue;
+
+            // gắn symbol name (đảm bảo có)
+            if (!obj.symbol) obj.symbol = sym;
+
+            symArr.push(obj);
+          }
+
+          // sort theo Index nếu muốn (nhưng symbol hash của 1 broker không cần)
+          item.OHLC_Symbols = symArr;
+        }
+      }
+
+      // 3) (Optional) load ohlc riêng theo từng symbol -> rất nặng
+      if (withOhlc && item.OHLC_Symbols.length) {
+        const pipeOhlc = r.pipeline();
+        for (const s of item.OHLC_Symbols) {
+          const sym = String(s.symbol || s.symbol_raw || '').toUpperCase().trim();
+          if (!sym) continue;
+          pipeOhlc.get(keyChartOHLC(broker_, sym));
+        }
+
+        const ohlcRes = await pipeOhlc.exec();
+
+        let idx = 0;
+        for (const s of item.OHLC_Symbols) {
+          const sym = String(s.symbol || s.symbol_raw || '').toUpperCase().trim();
+          if (!sym) continue;
+
+          const [e, packedOhlc] = ohlcRes[idx] || [];
+          idx++;
+
+          if (e || !packedOhlc) continue;
+
+          try {
+            const ohlc = typeof unpackValue === 'function' ? unpackValue(packedOhlc, cfg) : JSON.parse(packedOhlc);
+            s.ohlc = Array.isArray(ohlc) ? ohlc : ohlc;
+          } catch (_) {}
+        }
+      }
+
+      brokers.push(item);
+    }
+  } while (cursor !== '0');
+
+  // sort theo index (giống bạn hay dùng)
+  brokers.sort((a, b) => parseFloat(a.index || 0) - parseFloat(b.index || 0));
+
+  return brokers;
+}
+
+async function getBrokerMeta(broker_) {
   const r = assertRedis();
   const meta = await r.hgetall(keyMeta(broker_));
   return meta && Object.keys(meta).length ? meta : null;
@@ -672,6 +1517,73 @@ async function getSymbols(broker_, symbols = []) {
   }
   return out;
 }
+
+// =====================
+// DELETE BROKER (FULL CLEAN)
+// =====================
+/**
+ * deleteBroker('abc')
+ * - Xoá toàn bộ dữ liệu của broker trong Redis
+ * - Bao gồm:
+ *   broker:<broker_>:symbols
+ *   broker:<broker_>:meta
+ *   broker:<broker_>:stream (nếu có)
+ *   chart:ohlc:<broker_>:*
+ */
+async function deleteBroker(broker_) {
+  await ensureConnected();
+  const r = assertRedis();
+
+  if (!broker_) throw new Error('deleteBroker: broker_ is required');
+
+  const b = safeKeyPart(broker_);
+
+  const keysToDelete = [];
+
+  // Core keys
+  keysToDelete.push(`broker:${b}:symbols`);
+  keysToDelete.push(`broker:${b}:meta`);
+  keysToDelete.push(`broker:${b}:stream`);
+
+  // Chart OHLC keys: chart:ohlc:<broker_>:*
+  let cursor = '0';
+  do {
+    const [next, keys] = await r.scan(
+      cursor,
+      'MATCH',
+      `chart:ohlc:${b}:*`,
+      'COUNT',
+      200
+    );
+    cursor = next;
+    if (keys && keys.length) keysToDelete.push(...keys);
+  } while (cursor !== '0');
+
+  if (keysToDelete.length === 0) {
+    return { ok: true, broker_: b, deleted: 0 };
+  }
+
+  // DEL theo batch để an toàn
+  const pipe = r.pipeline();
+  for (const k of keysToDelete) {
+    pipe.del(k);
+  }
+
+  const res = await pipe.exec();
+
+  let deleted = 0;
+  for (const [, val] of res) {
+    deleted += Number(val || 0);
+  }
+
+  return {
+    ok: true,
+    broker_: b,
+    deletedKeys: keysToDelete.length,
+    deleted,
+  };
+}
+
 
 // =====================
 // LIST
@@ -781,7 +1693,7 @@ async function getSymbolAllBroker(symbol) {
   const symbolsKeys = [];
 
   do {
-    const [next, keys] = await r.scan(cursorKeys, 'MATCH', 'broker:*:symbols', 'COUNT', 200);
+    const [next, keys] = await r.scan(cursorKeys, 'MATCH', 'broker:*:symbols', 'COUNT', 5000);
     cursorKeys = next;
     if (keys && keys.length) symbolsKeys.push(...keys);
   } while (cursorKeys !== '0');
@@ -1074,7 +1986,11 @@ module.exports = {
 
   // write
   saveBrokerBatch,
-
+ savePriceData,
+  saveOHLCData,
+  saveBrokerPrice,
+  saveBrokerOHLC,
+  saveAllBroker,
   // base read
   getBrokerMeta,
   getSymbol,
@@ -1085,6 +2001,7 @@ module.exports = {
   getUnionSymbols,
   getUnionSymbolsAllBrokers,
   getSymbolAllBroker,
+  getMultipleSymbolDetails_RedisH,
   Broker_names,
 
   // best symbol
@@ -1099,6 +2016,9 @@ module.exports = {
   chartClose,
   isChartActive,
   getChartOHLC,
+  getAllBrokers,
+
+
 
   // misc
   exportBrokerSymbolsNDJSON,
@@ -1112,6 +2032,7 @@ module.exports = {
 
   chartSubscribe,
   getChartOHLC,
+  getTotalBrokers,
   publishOHLC,
   publishTickFromSymbol,
   getSubscriber,
@@ -1122,8 +2043,16 @@ refreshWatch,
 unwatchSymbol,
 unpackValue,
   packValue,
+  deleteBroker,
+  saveBrokerMeta,
 
   // expose channels helpers (optional, dùng trong WS web)
   __channels: { chTick, chOHLC },
-  __keys: { keyWatch, keyChartOHLC, keySymbols, keyMeta },
+  __keys: { keyWatch, keyChartOHLC, keySymbols, keyMeta, keySymbolMeta },
+
+  // ✅ THÊM 2 DÒNG NÀY ĐỂ SUPPORT MULTI/PIPELINE
+  multi: () => getRedis().multi(),
+  pipeline: () => getRedis().pipeline(), // alias nếu cần
+  keys: (pattern) => getRedis().keys(pattern),
+  scan: (cursor, options) => getRedis().scan(cursor, options),
 };
