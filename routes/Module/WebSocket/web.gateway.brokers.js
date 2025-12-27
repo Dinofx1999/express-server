@@ -60,10 +60,11 @@ function setupWebSocketServer(port) {
         wss.clients.forEach(async function each(ws) {
             //Lấy giá của 1 Symbol của tất cả Broker
            const brokers = await getAllBrokerMetaArray();
+
             // console.log(brokers);
             ws.send(JSON.stringify({time: getTimeGMT7() , data: brokers }));
         });
-    }, 500);
+    }, 300);
 
     wss.on('close', function close() {
         clearInterval(interval);

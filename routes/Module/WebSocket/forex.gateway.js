@@ -13,11 +13,52 @@ const SymbolDebounceQueue = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
 const { startTradeQueue, addTradeJob } = require('../Queue/trade.queue');
 const RedisH = require('../Redis/redis.helper');
-const {deleteBroker , saveOHLC_SNAP_ArrayOnly , setBrokerStatus} = require('../Redis/redis.helper2');
+const {deleteBrokerAndRelatedIndex , saveOHLC_SNAP_ArrayOnly , setBrokerStatus } = require('../Redis/redis.helper2');
 const PriceFlush = require("../Redis/priceBuffer.redisFlush");
 const {updateBrokerMetaFromRaw} = require("../Redis/redis.broker.meta");
 
-const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers  , getBestSymbolByIndex} = require("../Redis/redis.price.query");
+const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolOfMinIndexBroker  , getBestSymbolByIndex} = require("../Redis/redis.price.query");
+
+// ✅ Track session per broker_ (fix reconnect / tud gate)
+const brokerSession = new Map(); 
+// broker_ -> { wsId, lastSeen, lastTud, indexBroker }
+
+const BROKER_TIMEOUT_MS = 12_000;      // 12s không thấy PRICE_SNAP/OHLC_SNAP => coi là mất kết nối
+const TUD_RESET_ALLOW_GAP = 60_000;    // nếu tud tụt mạnh => coi là restart => cho phép nhận lại
+
+function shouldAcceptTud(broker_, tud) {
+  const b = String(broker_ || '').toLowerCase();
+  const cur = Number(tud);
+  if (!Number.isFinite(cur)) return true;
+
+  const sess = brokerSession.get(b);
+  if (!sess) return true;
+
+  const prev = Number(sess.lastTud);
+  if (!Number.isFinite(prev)) return true;
+
+  // bình thường: tud tăng
+  if (cur > prev) return true;
+
+  // tud giảm => MT4 restart/reconnect
+  if ((prev - cur) > TUD_RESET_ALLOW_GAP) {
+    sess.lastTud = cur; // reset
+    return true;
+  }
+
+  // duplicate/out-of-order => drop
+  return false;
+}
+
+function touchBrokerSession(broker_, ws, indexBrokerMaybe) {
+  const b = String(broker_ || '').toLowerCase();
+  const sess = brokerSession.get(b) || { wsId: ws?.id, lastSeen: 0, lastTud: -1, indexBroker: '' };
+  sess.wsId = ws?.id || sess.wsId;
+  sess.lastSeen = Date.now();
+  if (indexBrokerMaybe != null && indexBrokerMaybe !== '') sess.indexBroker = String(indexBrokerMaybe);
+  brokerSession.set(b, sess);
+  return sess;
+}
 
 // Constants
 let Time_Send;
@@ -176,6 +217,24 @@ function setupWebSocketServer(port) {
         handshakeTimeout: 10000,
     });
 
+    setInterval(async () => {
+  const now = Date.now();
+  for (const [broker_, sess] of brokerSession.entries()) {
+    if (!sess?.lastSeen) continue;
+    if ((now - sess.lastSeen) <= BROKER_TIMEOUT_MS) continue;
+
+    console.log(Color_Log_Error, `[TIMEOUT] broker=${broker_} -> cleanup broker+index`);
+
+    brokerSession.delete(broker_);
+
+    // ✅ xoá sạch broker + index liên quan (đúng đề xuất)
+    await deleteBrokerAndRelatedIndex(broker_).catch(() => {});
+
+    // (optional) cập nhật status
+    await setBrokerStatus(broker_, "Disconnect").catch(() => {});
+  }
+}, 2000).unref?.();
+
     wss.on('error', function(error) {
         console.log(Color_Log_Error, "WebSocket Server Error:", error);
     });
@@ -218,8 +277,24 @@ function setupWebSocketServer(port) {
                             if(Broker_Check == null || Broker_Check.index === Index_Broker) {
                                 log(colors.green, `FX_CLIENT - ${port}`, colors.green, message);
                                 ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 1, message: `Version = ${Version}, Index = ${Index_Broker}, Broker = ${BrokerName}, Key_SECRET = ${Key_SECRET} => Success`, Data: getTimeGMT7('datetime')}));
-                                Client_Connected.set(ws.id, {ws, Broker: formattedBrokerName, Key_SECRET});
-                                await RedisH.deleteBroker(formattedBrokerName);
+                                Client_Connected.set(ws.id, { ws, Broker: formattedBrokerName, Key_SECRET });
+
+                                // ✅ chỉ cleanup khi đã accept connection
+                                await deleteBrokerAndRelatedIndex(formattedBrokerName).catch(() => {});
+                                await RedisH.deleteBroker(formattedBrokerName).catch(() => {});
+
+                                // ✅ init broker session (reset tud)
+                                brokerSession.set(formattedBrokerName, {
+                                wsId: ws.id,
+                                lastSeen: Date.now(),
+                                lastTud: -1,
+                                indexBroker: String(Index_Broker || '')
+                                });
+
+                                ws.__broker_ = formattedBrokerName;
+                                ws.__indexBroker = String(Index_Broker || '');
+                                ws.tud = -1; // (không dùng nữa nhưng giữ cho khỏi undefined)
+
                             } else {
                                 log(colors.red, `FX_CLIENT - ${port}`, colors.magenta, message);
                                 ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 0, message: `Version = ${Version}, Index = ${Index_Broker} => Success, Broker = ${BrokerName} => Fail`, Data: getTimeGMT7('datetime')}));
@@ -263,12 +338,12 @@ function setupWebSocketServer(port) {
                                 await setBrokerStatus(formatString(Broker), reset_text);
                                 await onBrokerStatusChange(formatString(Broker), reset_text);
                                 
-                                const Response = await getBestSymbolByIndex(Symbol);
+                                const Response = await getSymbolOfMinIndexBroker(Symbol);
                                 // console.log(Color_Log_Success, "SYNC_PRICE - Response:", Response);
                                 let responseData;
                                 let logColor;
                                 if (Response && Response.index < Index_Broker) {
-                                     console.log(Color_Log_Success, "SYNC_PRICE - Response:", Response.broker ," - ", Index_Broker);
+                                    //  console.log(Color_Log_Success, "SYNC_PRICE - Response:", Response.broker ," - ", Index_Broker);
                                     responseData = {
                                         Symbol: Response.symbol,
                                         Broker: Response.broker,
@@ -318,31 +393,50 @@ function setupWebSocketServer(port) {
                             break;
                         // ✅ NEW: PRICE_SNAP -> Shared Memory (NO REDIS)
                         case "PRICE_SNAP": {
-                            
-                            try{
-                                //  if (process.send) process.send({ type: "META_UPSERT", brokerKey: rawData.broker, meta: rawData });
-                                const rawData = data.data;
-                                if(rawData.tud <= ws.tud) return;
-                                
-                              PriceFlush.updatePriceBufferFromMT4(rawData);
-                              updateBrokerMetaFromRaw(rawData).catch(err =>
-                                  console.error("Error updating broker meta:", err.message)
-                              );
-                              ws.tud = rawData.tud;
-                            } catch(err) {
-                                console.error("Error in PRICE_SNAP handler:", err.message);
-                            }
-                            
-                            break;
-                        }
-                        
-                        case "OHLC_SNAP": {
-                            const rawData = data.data;
-                            await saveOHLC_SNAP_ArrayOnly(data).catch(err =>
-                                console.error("Error saving OHLC_SNAP:", err.message)
-                            );
-                            break;
-                        }
+  try {
+    const rawData = data.data;
+    if (!rawData) return;
+
+    const broker_ = formatString(rawData.broker_ || rawData.broker);
+    const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
+
+    // ✅ heartbeat for timeout + bind session to current ws
+    const sess = touchBrokerSession(broker_, ws, idx);
+
+    // ✅ tud gate theo broker session (NOT per ws)
+    // if (!shouldAcceptTud(broker_, rawData.tud)) return;
+
+    // update lastTud
+    const curTud = Number(rawData.tud);
+    if (Number.isFinite(curTud)) sess.lastTud = curTud;
+
+    PriceFlush.updatePriceBufferFromMT4(rawData);
+
+    updateBrokerMetaFromRaw(rawData).catch(err =>
+      console.error("Error updating broker meta:", err.message)
+    );
+
+  } catch (err) {
+    console.error("Error in PRICE_SNAP handler:", err.message);
+  }
+  break;
+}
+
+                       case "OHLC_SNAP": {
+  try {
+    const rawData = data.data || {};
+    const broker_ = formatString(rawData.broker_ || rawData.broker);
+    const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
+
+    touchBrokerSession(broker_, ws, idx);
+
+    await saveOHLC_SNAP_ArrayOnly(data);
+  } catch (err) {
+    console.error("Error saving OHLC_SNAP:", err.message);
+  }
+  break;
+}
+
 
                         case "Ping": {
                             ws.send(JSON.stringify({
@@ -438,15 +532,22 @@ function setupWebSocketServer(port) {
             });
 
             ws.on('close', async function close() {
-                const client = Client_Connected.get(ws.id);
-                if (client) {
-                    log(colors.red, `FX_CLIENT - ${port}`, colors.reset, `Client disconnected: ${client.Broker.toUpperCase()}`);
-                    await deleteBroker(client.Broker).catch(err => 
-                        log(colors.red, `FX_CLIENT - ${port}`, colors.reset, "Error deleting broker:", err)
-                    );
-                    Client_Connected.delete(ws.id);
-                }
-            });
+  const client = Client_Connected.get(ws.id);
+  if (client) {
+    const broker_ = client.Broker;
+
+    log(colors.red, `FX_CLIENT - ${port}`, colors.reset, `Client disconnected: ${broker_.toUpperCase()}`);
+
+    brokerSession.delete(broker_);
+
+    await deleteBrokerAndRelatedIndex(broker_).catch(err =>
+      log(colors.red, `FX_CLIENT - ${port}`, colors.reset, "Error deleting broker:", err)
+    );
+
+    Client_Connected.delete(ws.id);
+  }
+});
+
         });
 
         server.listen(port, () => {

@@ -60,33 +60,44 @@ async function getPrice(broker, symbol) {
 // 5) LẤY TOÀN BỘ SYMBOL CỦA 1 BROKER
 // =====================================================
 async function getAllPricesByBroker(broker) {
-  const broker_ = String(broker || "").trim().toLowerCase();
-  if (!broker_) return [];
+  const redis = getRedis();
+  if (!broker) return [];
 
-  // 1) Lấy danh sách symbol của broker
-  const symbols = await redis.smembers(`symbols:${broker_}`);
-  if (!symbols || symbols.length === 0) return [];
+  const brokerKey = broker.toLowerCase();
+  const symbols = await redis.smembers(`symbols:${brokerKey}`);
+  if (!symbols || !symbols.length) return [];
 
-  // 2) Pipeline lấy snapshot từng symbol
   const pipe = redis.pipeline();
-  symbols.forEach(sym => {
-    pipe.hgetall(`snap:${broker_}:${sym}`);
-  });
+  for (const sym of symbols) {
+    pipe.hgetall(`snap:${brokerKey}:${sym}`);
+  }
 
   const res = await pipe.exec();
 
-  // 3) Build mảng kết quả
   const out = [];
-  symbols.forEach((symbol, i) => {
+
+  for (let i = 0; i < symbols.length; i++) {
     const [err, data] = res[i] || [];
-    if (err || !data || Object.keys(data).length === 0) return;
+    if (err || !data || Object.keys(data).length === 0) continue;
 
     out.push({
-      broker_: broker_,
-      symbol,
-      ...parseSnapshot(data)   // parse string → number/array
+      symbol: symbols[i],
+      broker: data.broker || broker,
+      bid: Number(data.bid) || 0,
+      ask: Number(data.ask) || 0,
+      spread: Number(data.spread) || 0,
+
+      // ✅ QUAN TRỌNG – lấy đúng time
+      time: data.timecurrent || data.timeUpdated || data.receivedAt || "",
+
+      // giữ lại nếu cần
+      bid_mdf: data.bid_mdf || null,
+      ask_mdf: data.ask_mdf || null,
+      index: data.index || "",
+      trade: data.trade || "",
+      status: data.status || "",
     });
-  });
+  }
 
   return out;
 }
@@ -121,16 +132,27 @@ async function getSymbolAcrossBrokers(symbol) {
     if (!snap) return;
 
     const [e2, status] = res2[i] || [];
+
+    // ✅ index dùng để sort (ưu tiên indexBroker)
+    const idxRaw = snap.indexBroker ?? snap.index ?? snapHash.indexBroker ?? snapHash.index ?? "";
+    const idxNum = Number(idxRaw);
+
     out.push({
-      broker_,
-                       // key chuẩn lowercase
-      Status: e2 ? "" : (status ?? ""), // lấy từ broker_meta
-      ...snap                  // bid/ask/spread/...
+      broker_,                           // key chuẩn lowercase
+      Status: e2 ? "" : (status ?? ""),  // lấy từ broker_meta
+      ...snap,                           // bid/ask/spread/...
+      index: idxRaw,                     // giữ để UI dùng
+      indexNum: Number.isFinite(idxNum) ? idxNum : Number.MAX_SAFE_INTEGER, // dùng sort
     });
   });
 
-  return out;
+  // ✅ sort theo index tăng dần
+  out.sort((a, b) => (a.indexNum ?? 999999999) - (b.indexNum ?? 999999999));
+
+  // (tuỳ bạn) nếu không muốn trả indexNum ra ngoài:
+  return out.map(({ indexNum, ...rest }) => rest);
 }
+
 
 
 // =====================================================
@@ -196,93 +218,183 @@ async function getAllUniqueSymbols() {
 }
 
 async function getAllBrokerMetaArray() {
-  // 1. Lấy danh sách broker_ (lowercase)
+  // 1. Lấy danh sách broker
   const brokers = await redis.smembers("brokers");
-  if (!brokers.length) return [];
+  if (!brokers || brokers.length === 0) return [];
 
-  // 2. Pipeline lấy broker_meta:<broker_>
+  // 2. Lấy meta của từng broker
   const pipe = redis.pipeline();
-  brokers.forEach(broker_ => {
+  for (const broker_ of brokers) {
     pipe.hgetall(`broker_meta:${broker_}`);
-  });
+  }
 
   const res = await pipe.exec();
 
-  // 3. Build mảng kết quả
-  const out = [];
+  const result = [];
+
   brokers.forEach((broker_, i) => {
     const [err, meta] = res[i] || [];
     if (err || !meta || Object.keys(meta).length === 0) return;
-    out.push({
-      index: meta.index ?? meta.indexBroker ?? "",
-      broker: meta.broker ?? "",        
-      broker_: meta.broker_ ?? "",        // tên hiển thị (AB, B…)
-      version: meta.version ?? "",
-      totalsymbol: meta.totalsymbol ?? "",
-      timecurent: meta.timecurent ?? "",
-      status: meta.status ?? "",
-      timeUpdated: meta.timeUpdated ?? "",
-      port: meta.port ?? "",
-      typeaccount: meta.typeaccount ?? ""
+
+    const indexVal = meta.index ?? meta.indexBroker ?? '';
+
+    result.push({
+      broker_: broker_,
+      broker: meta.broker ?? '',
+      index: indexVal,
+      indexNum: Number(indexVal), // dùng để sort
+      version: meta.version ?? '',
+      totalsymbol: meta.totalsymbol ?? '',
+      timecurent: meta.timecurent ?? '',
+      status: meta.status ?? '',
+      typeaccount: meta.typeaccount ?? '',
+      port: meta.port ?? '',
+      timeUpdated: meta.timeUpdated ?? '',
     });
   });
 
-  return out;
+  // 3. Sort theo index tăng dần (ưu tiên số hợp lệ)
+  result.sort((a, b) => {
+    const aIdx = isNaN(a.indexNum) ? Number.MAX_SAFE_INTEGER : a.indexNum;
+    const bIdx = isNaN(b.indexNum) ? Number.MAX_SAFE_INTEGER : b.indexNum;
+    return aIdx - bIdx;
+  });
+
+  return result;
 }
 
 
-async function getBestSymbolByIndex(symbol) {
-  const sym = String(symbol || "").toUpperCase();
+
+async function getBestSymbolByIndex(symbol, opts = {}) {
+  const sym = String(symbol || "").toUpperCase().trim();
   if (!sym) return null;
+
+  const { staleMs = 2000 } = opts; // bỏ stale nếu bạn không muốn lọc
 
   const brokers = await redis.smembers("brokers");
   if (!brokers.length) return null;
 
   const pipe = redis.pipeline();
 
-  // Lấy snapshot + status
-  brokers.forEach(b => {
+  brokers.forEach((b) => {
     pipe.hgetall(`snap:${b}:${sym}`);
-    pipe.hget(`broker_meta:${b}`, "status");
-    pipe.hget(`broker_meta:${b}`, "index");
+    pipe.hmget(`broker_meta:${b}`, "status", "index"); // gộp 1 lệnh cho nhẹ
   });
 
   const res = await pipe.exec();
 
   let best = null;
+  const now = Date.now();
 
   for (let i = 0; i < brokers.length; i++) {
-    const snap = res[i * 3]?.[1];
-    const status = res[i * 3 + 1]?.[1];
-    const index = Number(res[i * 3 + 2]?.[1]);
+    const broker_ = brokers[i];
+
+    const snap = res[i * 2]?.[1];
+    const metaArr = res[i * 2 + 1]?.[1]; // [status, index]
 
     if (!snap || !snap.bid || !snap.ask) continue;
 
+    const metaStatus = metaArr?.[0];
+    const metaIndex = metaArr?.[1];
+
+    // ✅ status: ưu tiên snap.status, fallback meta.status
+    const status = String(snap.status ?? metaStatus ?? "");
+
+    // ✅ index: ưu tiên snap.indexBroker/snap.index, fallback meta.index
+    const idxRaw = snap.indexBroker ?? snap.index ?? metaIndex;
+    const index = Number(idxRaw);
+    const indexNum = Number.isFinite(index) ? index : Infinity;
+
+    // ✅ stale guard (nếu receivedAt quá cũ thì bỏ qua)
+    const recv = Number(snap.receivedAt || 0);
+    if (staleMs > 0 && recv > 0 && (now - recv) > staleMs) continue;
+
     const candidate = {
-      broker_: brokers[i],
-      index: isNaN(index) ? Infinity : index,
-      status: status || "",
-      ...parseSnapshot(snap)
+      broker_,
+      index: indexNum,
+      status,
+      ...parseSnapshot(snap),
+      // đảm bảo có symbol
+      symbol: sym,
     };
 
-    // Ưu tiên broker status = TRUE
     if (!best) {
       best = candidate;
       continue;
     }
 
-    if (candidate.status === "True" && best.status !== "True") {
+    // Ưu tiên status True
+    const candTrue = candidate.status === "True";
+    const bestTrue = best.status === "True";
+
+    if (candTrue && !bestTrue) {
       best = candidate;
       continue;
     }
 
-    if (candidate.status === best.status && candidate.index < best.index) {
+    // cùng status -> index nhỏ hơn thắng
+    if (candTrue === bestTrue && candidate.index < best.index) {
       best = candidate;
     }
   }
 
   return best;
 }
+
+async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
+  const sym = String(symbol || "").toUpperCase().trim();
+  if (!sym) return null;
+
+  const { staleMs = 0 } = opts; // nếu muốn lọc dữ liệu cũ: vd 2000
+
+  const brokers = await redis.smembers("brokers");
+  if (!brokers.length) return null;
+
+  const pipe = redis.pipeline();
+
+  // 1) lấy snap + meta.index (fallback)
+  for (const b of brokers) {
+    pipe.hgetall(`snap:${b}:${sym}`);
+    pipe.hget(`broker_meta:${b}`, "index");
+  }
+
+  const res = await pipe.exec();
+
+  let best = null;
+  const now = Date.now();
+
+  for (let i = 0; i < brokers.length; i++) {
+    const broker_ = brokers[i];
+
+    const snap = res[i * 2]?.[1];
+    const metaIndex = res[i * 2 + 1]?.[1];
+
+    if (!snap || !snap.bid || !snap.ask) continue;
+    if(snap.timedelay && Number(snap.timedelay) < -1800)  continue; // bỏ timedelay > 30p
+
+    // ✅ index ưu tiên từ snap (chuẩn nhất), fallback meta
+    const idxRaw = snap.indexBroker ?? snap.index ?? metaIndex;
+    const idx = Number(idxRaw);
+    const indexNum = Number.isFinite(idx) ? idx : Infinity;
+
+    // (optional) bỏ snap quá cũ
+    const recv = Number(snap.receivedAt || 0);
+    if (staleMs > 0 && recv > 0 && (now - recv) > staleMs) continue;
+
+    const candidate = {
+      broker_,
+      index: indexNum,
+      ...snap,
+    };
+
+    if (!best || candidate.index < best.index) best = candidate;
+  }
+
+  return best; // best.symbol chính là symbol của broker index nhỏ nhất
+}
+
+
+
 
 
 
@@ -310,5 +422,6 @@ module.exports = {
   getAllSnapshots,
   getAllBrokerMetaArray,
   getAllUniqueSymbols,
-  getBestSymbolByIndex
+  getBestSymbolByIndex,
+  getSymbolOfMinIndexBroker,
 };

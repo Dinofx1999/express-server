@@ -29,8 +29,8 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             if(SESSION === "Tokyo") SPREAD_X_SESSION = symbolConfig_data.Tokyo;
             if(SESSION === "London") SPREAD_X_SESSION = symbolConfig_data.London;
             if(SESSION === "NewYork") SPREAD_X_SESSION = symbolConfig_data.NewYork;
-            if( CURRENT.Typeaccount === "STD") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
-            if( CURRENT.Typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
+            if( CURRENT.typeaccount === "STD") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
+            if( CURRENT.typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
         
         //Check BUY
@@ -46,17 +46,17 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         if(Number(data[i].timedelay)<0)
             Type = 'Delay Price Stop';
 
-    //   if(symbol === "XAUUSD") console.log(data[i]);
+    //   if(symbol === "GBPUSD") console.log(CURRENT.typeaccount, SPREAD_MIN_CURRENT , SPREAD_X_SESSION , SPREAD_X_CURRENT , Spread_Sync , Point_Spread , Price_BUY_CURRENT , Price_BUY_CHECK );
         if(parseFloat(Price_BUY_CURRENT) < parseFloat(Price_BUY_CHECK)){
             const timeStart = getTimeGMT7();
             const Payload = {
-                    Broker: CURRENT.Broker,
+                    Broker: CURRENT.broker,
                     TimeStart: timeStart,
                     TimeCurrent: timeStart,
                     Symbol: symbol,
                     Count: 0,
                     Messenger: "BUY",
-                    Broker_Main: CHECK.Broker,
+                    Broker_Main: CHECK.broker,
                     KhoangCach: parseInt((Price_BUY_CHECK - Price_BUY_CURRENT)*parseFloat(Digit_Rec(parseInt(CHECK.digit)))) ,
                     Symbol_Raw: CURRENT.symbol_raw,
                     Spread_main: CURRENT.spread,
@@ -77,13 +77,13 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         if(parseFloat(Price_SELL_CURRENT) > parseFloat(Price_SELL_CHECK)){
             const timeStart = getTimeGMT7();
             const Payload = {
-                    Broker: CURRENT.Broker,
+                    Broker: CURRENT.broker,
                     TimeStart: timeStart,
                     TimeCurrent: timeStart,
                     Symbol: symbol,
                     Count: 0,
                     Messenger: "SELL",
-                    Broker_Main: CHECK.Broker,
+                    Broker_Main: CHECK.broker,
                     KhoangCach: parseInt((Price_SELL_CURRENT - Price_SELL_CHECK)*parseFloat(Digit_Rec(parseInt(CHECK.digit)))) ,
                     Symbol_Raw: CURRENT.symbol_raw,
                     Spread_main: CURRENT.spread,

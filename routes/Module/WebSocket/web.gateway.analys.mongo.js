@@ -14,7 +14,7 @@ RedisH.initRedis({
   db: 0,          // ⚠️ PHẢI giống worker ghi
   compress: true
 });
-const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray , getAllUniqueSymbols} = require("../Redis/redis.price.query");
+const { getAllUniqueSymbols} = require("../Redis/redis.price.query");
 
 var Color_Log_Success = "\x1b[32m%s\x1b[0m";
 var Color_Log_Error = "\x1b[31m%s\x1b[0m";

@@ -40,16 +40,12 @@ router.get(`/${VERSION}/:symbol/getdata`,authRequired, async function(req, res, 
 });
 /* Reset Tất Cả của 1 Broker*/
 router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
-  console.log("Reset Broker Endpoint Hit");
-  // const Data = await Redis.getAllBrokers();
-  // return res.status(200).json(Data);
   const { broker , symbol} = req.params;
   const Broker_Check = await getBrokerMeta(broker);
-  console.log("Broker_Check:", Broker_Check);
   const PORT = Broker_Check?.port || null;
   const INDEX = Broker_Check?.index || null;
   const message = `Reset Received for Broker: ${broker} , Symbol: ${symbol}`;
-console.log("Broker_Check:", Broker_Check , " PORT:", PORT , " INDEX:", INDEX);
+// console.log("Broker_Check:", Broker_Check , " PORT:", PORT , " INDEX:", INDEX);
   if(PORT && INDEX !== '0' && INDEX !== 0 && INDEX !== null){
     await Redis.publish(String(PORT), JSON.stringify({
     Symbol: symbol,
@@ -82,7 +78,7 @@ console.log("Broker_Check:", Broker_Check , " PORT:", PORT , " INDEX:", INDEX);
 });
 router.get(`/${API_DESTROY_BROKER}`,authRequired, async function(req, res, next) {
   const { broker} = req.params;
-  const Broker_Check = await RedisH.getBrokerMeta(broker);
+  const Broker_Check = await getBrokerMeta(broker);
   const PORT = Broker_Check?.port || null;
   if(PORT){
     await Redis.publish(String(PORT), JSON.stringify({
@@ -158,12 +154,17 @@ router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, n
   res.status(200).json({ message: "Reset all brokers initiated." });
 });
 router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, res, next) {
+  try {
     await deleteByPattern('chart:ohlc:*');
     await deleteByPattern('snap:*');
     await deleteByPattern('brokers');
-    return res.status(200).json({
-      deleteResult
-    });
+    res.status(200).json({ message: "All broker data cleared from Redis." });
+  }catch (error) {
+    console.error("Error clearing broker data:", error);
+    res.status(500).json({ message: "Error clearing broker data." });
+  }
+    
+   
 });
 
 
@@ -188,6 +189,7 @@ async function resetBrokersLoop() {
 
   // ✅ lấy list broker theo kiểu mới: SET "brokers"
   const brokerList = await RedisH2.getAllBrokers(); // array: ['b','ab',...]
+  console.log("Brokers to reset:", brokerList);
   if (!brokerList || brokerList.length <= 1) {
     console.log('❌ No brokers to reset');
     return { success: false, message: 'No brokers to reset' };

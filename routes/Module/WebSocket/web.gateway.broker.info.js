@@ -14,7 +14,7 @@ RedisH.initRedis({
   compress: true
 });
 
-const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Redis/redis.price.query");
+const { getAllPricesByBroker} = require("../Redis/redis.helper2");
 // const getData = require('../Helpers/read_Data');
 // const Data = require('../Helpers/get_data');
 // const e = require('express');
@@ -64,6 +64,7 @@ function setupWebSocketServer(port) {
             //Lấy Thông Tin của 1 Broker
             // const data = await Redis.getBroker(ws.Broker);
             // console.log("WS INFO BROKER - ", ws.Broker);
+            console.log("WS INFO BROKER - ", ws.Broker);
             const list = await getAllPricesByBroker(ws.Broker);
             ws.send(JSON.stringify({time: getTimeGMT7() , data: list }));
         });
