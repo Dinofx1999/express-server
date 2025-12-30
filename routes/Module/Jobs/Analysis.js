@@ -1,6 +1,6 @@
 /* eslint-disable */
 const {formatString, normSym} = require('../Helpers/text.format');
-const {getTimeGMT7} = require('../Helpers/time');
+const {getTimeGMT7 ,getMinuteSecond } = require('../Helpers/time');
 const {getSymbolInfo , getForexSession ,Digit , Digit_Rec} = require('../Jobs/Func.helper');
 // const {Analysis} = require('../Jobs/Analysis');
 const Redis = require('../Redis/clientRedis');
@@ -13,10 +13,14 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
     for(let i = 1; i < total_length; i++){
         const CHECK = data[0];
         const CURRENT = data[i];
+        const Time_CR_Check = getMinuteSecond(CHECK.timecurent_broker);
+        const Time_CR_Current = getMinuteSecond(CURRENT.timecurent_broker);
+
+        // if(CHECK.symbol === "GBPUSD" && Time_CR_Check ) console.log(getMinuteSecond(CURRENT.timecurent_broker),getMinuteSecond(getTimeGMT7('datetime')), CURRENT);
 
         let Max_Delay = Number(process.env.MAX_NEGATIVE_DELAY) * 60; // Chuyển phút sang ms
         let Delay_symbol = Number(CURRENT.timedelay);
-        if( Delay_symbol < Max_Delay && CURRENT.timecurrent + Delay_Stop < CHECK.timecurrent) return; // Bỏ qua nếu delay quá lớn
+        if( Delay_symbol < Max_Delay && CURRENT.timecurrent + Delay_Stop < CHECK.timecurrent && CHECK.trade !== "TRUE") continue; // Bỏ qua nếu delay quá lớn
 
         let SPREAD_MIN_CURRENT = Number(CURRENT.spread_mdf);
         let SPREAD_X_CURRENT = Number(spread_plus) || 1;

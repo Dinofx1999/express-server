@@ -4,7 +4,7 @@ const mongoose = require("mongoose");
 const {log , colors} = require('../Helpers/Log');
 // Import các module
 const Redis = require('../Redis/clientRedis');
-const {deleteByPattern} = require('../Redis/redis.helper2');
+const {deleteByPattern , flushAllRedis} = require('../Redis/redis.helper2');
 const RedisH = require('../Redis/redis.helper');
 RedisH.initRedis({
   host: '127.0.0.1',
@@ -97,9 +97,7 @@ async function MainStream() {
 
         if (cluster.isPrimary) {
             try {
-                await deleteByPattern('chart:ohlc:*');
-                await deleteByPattern('snap:*');
-                await deleteByPattern('brokers');
+                await flushAllRedis();
 
                 log(colors.cyan, 'MASTER', colors.reset, 'Redis data cleared successfully');
             } catch (redisError) {

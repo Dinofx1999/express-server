@@ -14,7 +14,7 @@ async function sendTelegramMessage({ chatId, text, parse_mode }, retry = 0) {
   if (!finalChatId) throw new Error('chat_id is empty');
 
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
-
+console.log('[Telegram] Sending message to chat_id:', finalChatId , token);
   try {
     const res = await axios.post(
       url,

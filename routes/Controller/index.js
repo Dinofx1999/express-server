@@ -13,7 +13,7 @@ const {  API_ALL_INFO_BROKERS ,
 const Redis = require('../Module/Redis/clientRedis');
 const RedisH2 = require('../Module/Redis/redis.helper2');
 const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
-const {deleteByPattern} = require('../Module/Redis/redis.helper2');
+const {flushAllRedis} = require('../Module/Redis/redis.helper2');
 const PriceFlush = require('../Module/Redis/priceBuffer.redisFlush');
 // RedisH.initRedis({
 //   host: '127.0.0.1',
@@ -155,9 +155,7 @@ router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, n
 });
 router.get(`/${VERSION}/reset-broker-server`,authRequired, async function(req, res, next) {
   try {
-    await deleteByPattern('chart:ohlc:*');
-    await deleteByPattern('snap:*');
-    await deleteByPattern('brokers');
+    await flushAllRedis();
     res.status(200).json({ message: "All broker data cleared from Redis." });
   }catch (error) {
     console.error("Error clearing broker data:", error);

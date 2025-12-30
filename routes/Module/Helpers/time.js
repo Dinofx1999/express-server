@@ -21,4 +21,10 @@ function getTimeGMT7(format = 'datetime') {
       return `${year}.${month}.${day} ${hour}:${minute}:${second}`;
   }
 }
-module.exports = { getTimeGMT7 };
+function getMinuteSecond(timeStr) {
+  // timeStr = "2025.12.26 21:01:56"
+  const timePart = timeStr.split(" ")[1]; // "21:01:56"
+  const [, minute, second] = timePart.split(":");
+  return `${minute}:${second}`;
+}
+module.exports = { getTimeGMT7 , getMinuteSecond };

@@ -55,7 +55,6 @@ function brokerMetaKey(broker_) {
 
 function parseSnapshotHash(h, broker_) {
   if (!h || typeof h !== 'object' || Object.keys(h).length === 0) return null;
-
   return {
     broker_: h.broker_ ?? broker_ ?? '',
     broker: h.broker ?? '',
@@ -79,6 +78,8 @@ function parseSnapshotHash(h, broker_) {
     last_reset: h.last_reset ?? '',
     timecurrent: h.timecurrent ?? '',
     typeaccount: h.typeaccount ?? '',
+    auto_trade: h.auto_trade ?? '',
+    timetrade: JSON.parse(h.timetrade ?? '[]'),
     port: h.port ?? '',
   };
 }
@@ -95,31 +96,41 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
   for (const b of brokers) pipe1.hgetall(snapKey(b, sym));
   const res1 = await pipe1.exec();
 
-  // 2) lấy status all brokers (nhẹ)
+  // 2) lấy meta all brokers (status + auto_trade) - vẫn "nhẹ"
   const pipe2 = redis.pipeline();
-  for (const b of brokers) pipe2.hget(brokerMetaKey(b), 'status');
+  for (const b of brokers) {
+    pipe2.hmget(brokerMetaKey(b), "status", "auto_trade");
+  }
   const res2 = await pipe2.exec();
-
+  
   const out = [];
   for (let i = 0; i < brokers.length; i++) {
     const broker_ = brokers[i];
-
     const [e1, h] = res1[i] || [];
     if (e1 || !h || Object.keys(h).length === 0) continue;
-  
+//  console.log(h);
     const snap = parseSnapshotHash(h, broker_);
-    if (!snap) continue;
-    if(snap.timedelay < -1800)  continue; // bỏ timedelay > 30p
 
-    const [e2, status] = res2[i] || [];
-    // ✅ field đúng UI: Status
-    snap.Status = e2 ? '' : (status ?? '');
+    if (!snap) continue;
+
+    // ✅ lọc timedelay + trade
+    if (Number(snap.timedelay) < -1800) continue;
+    if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
+
+    const [e2, metaArr] = res2[i] || [];
+    const status = !e2 && metaArr ? metaArr[0] : "";
+    const auto_trade = !e2 && metaArr ? metaArr[1] : "";
+  
+    // ✅ field đúng UI
+    snap.Status = status ?? "";
+    snap.auto_trade = auto_trade ?? ""; // <-- thêm auto_trade
 
     out.push(snap);
   }
 
   return out;
 }
+
 
 // -------- main ----------
 function setupWebSocketServer(port) {

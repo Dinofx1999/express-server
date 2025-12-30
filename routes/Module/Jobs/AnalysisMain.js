@@ -5,11 +5,15 @@ const { Analysis_Type2 } = require('../Jobs/Analysis_Type2');
 const { connectMongoDB } = require('../../Database/mongodb');
 const { getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
 const { colors } = require('../Helpers/Log');
+const {getMinuteSecond ,getTimeGMT7} = require('../Helpers/time');
 
 let ConfigSymbol = [];
 let symbolConfigMap = new Map();
 const RedisH = require('../Redis/redis.helper');
-const { getMultipleSymbolDetails_RedisH ,getAllBrokers , getMultipleSymbolAcrossBrokersWithMetaFast,  getRedis} = require('../Redis/redis.helper2');
+const { getMultipleSymbolDetails_RedisH ,
+        getAllBrokers,
+        getMultipleSymbolAcrossBrokersWithMetaFast,  
+        getRedis} = require('../Redis/redis.helper2');
 const { getAllUniqueSymbols} = require("../Redis/redis.price.query");
 RedisH.initRedis({
   host: '127.0.0.1',
@@ -87,7 +91,8 @@ function runAnalysisLoop() {
             const symbolConfig = symbolConfigMap.get(sym) || getSymbolInfo(ConfigSymbol, sym);
             
             const priceData = priceDataMap.get(sym);
-          //  if(sym === "TW88") console.log(priceData);
+            
+          //  if(sym === "FRA40") console.log(priceData);
             if (!priceData || priceData.length <= 1) return;
             if(String(Type_Analysis) === 'type1'){
                 await Analysis(priceData, sym, symbolConfig ,Delay_Stop ,Spread_Plus);

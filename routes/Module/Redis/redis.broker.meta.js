@@ -21,6 +21,7 @@ async function updateBrokerMetaFromRaw(rawData) {
     timeUpdated: String(rawData.timeUpdated ?? ""),
     port: String(rawData.port ?? ""),
     typeaccount: String(rawData.typeaccount ?? ""),
+    auto_trade: String(rawData.auto_trade ?? ""),
     receivedAt: String(Date.now())
   };
 

@@ -196,7 +196,9 @@ function setupWebSocketServer(port) {
             if (element.ws.readyState === WebSocket.OPEN) {
                 if(element.Broker == Broker && element.Key_SECRET == channel.Key_SECRET) {
                     console.log(Color_Log_Success, `Order Send: ${Broker} - ${channel.Type_Order} - ${channel.Symbol} - ${channel.Key_SECRET}`);
+                    
                     const Mess = JSON.stringify({type: "ORDER", Success: 1, message: channel.Symbol, data: `${channel.Key_SECRET}-${channel.Type_Order}-${channel.Price_Bid}`});
+                    console.log (Mess);
                     element.ws.send(Mess);
                 }
             }
@@ -393,49 +395,48 @@ function setupWebSocketServer(port) {
                             break;
                         // ✅ NEW: PRICE_SNAP -> Shared Memory (NO REDIS)
                         case "PRICE_SNAP": {
-  try {
-    const rawData = data.data;
-    if (!rawData) return;
+                            try {
+                                const rawData = data.data;
+                                if (!rawData) return;
 
-    const broker_ = formatString(rawData.broker_ || rawData.broker);
-    const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
+                                const broker_ = formatString(rawData.broker_ || rawData.broker);
+                                const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
 
-    // ✅ heartbeat for timeout + bind session to current ws
-    const sess = touchBrokerSession(broker_, ws, idx);
+                                // ✅ heartbeat for timeout + bind session to current ws
+                                const sess = touchBrokerSession(broker_, ws, idx);
 
-    // ✅ tud gate theo broker session (NOT per ws)
-    // if (!shouldAcceptTud(broker_, rawData.tud)) return;
+                                // ✅ tud gate theo broker session (NOT per ws)
+                                // if (!shouldAcceptTud(broker_, rawData.tud)) return;
 
-    // update lastTud
-    const curTud = Number(rawData.tud);
-    if (Number.isFinite(curTud)) sess.lastTud = curTud;
+                                // update lastTud
+                                const curTud = Number(rawData.tud);
+                                if (Number.isFinite(curTud)) sess.lastTud = curTud;
 
-    PriceFlush.updatePriceBufferFromMT4(rawData);
+                                PriceFlush.updatePriceBufferFromMT4(rawData);
 
-    updateBrokerMetaFromRaw(rawData).catch(err =>
-      console.error("Error updating broker meta:", err.message)
-    );
+                                updateBrokerMetaFromRaw(rawData).catch(err =>
+                                console.error("Error updating broker meta:", err.message)
+                                );
 
-  } catch (err) {
-    console.error("Error in PRICE_SNAP handler:", err.message);
-  }
-  break;
-}
-
+                            } catch (err) {
+                                console.error("Error in PRICE_SNAP handler:", err.message);
+                            }
+                            break;
+                            }
                        case "OHLC_SNAP": {
-  try {
-    const rawData = data.data || {};
-    const broker_ = formatString(rawData.broker_ || rawData.broker);
-    const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
+                            try {
+                                const rawData = data.data || {};
+                                const broker_ = formatString(rawData.broker_ || rawData.broker);
+                                const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
 
-    touchBrokerSession(broker_, ws, idx);
+                                touchBrokerSession(broker_, ws, idx);
 
-    await saveOHLC_SNAP_ArrayOnly(data);
-  } catch (err) {
-    console.error("Error saving OHLC_SNAP:", err.message);
-  }
-  break;
-}
+                                await saveOHLC_SNAP_ArrayOnly(data);
+                            } catch (err) {
+                                console.error("Error saving OHLC_SNAP:", err.message);
+                            }
+                            break;
+                            }
 
 
                         case "Ping": {

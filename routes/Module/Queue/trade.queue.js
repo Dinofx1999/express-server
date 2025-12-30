@@ -11,6 +11,7 @@ const TRADE_QUEUE_INTERVAL = Number(process.env.TRADE_QUEUE_INTERVAL || 1000); /
 // Hàm add Job vào queue
 function addTradeJob(trade) {
   tradeQueue.push(trade);
+  console.log('[TradeQueue] Job added. Queue length:', tradeQueue.length);
 }
 
 // Hàm format message gửi Telegram
@@ -59,6 +60,7 @@ function formatTradeMessage(trade) {
 
 // Worker xử lý từng job trong queue
 async function processTradeQueue() {
+
   if (isWorking) return;
   const job = tradeQueue.shift();
   if (!job) return;
@@ -70,6 +72,7 @@ async function processTradeQueue() {
 
     // 2️⃣ Gửi Telegram
     const text = formatTradeMessage(job);
+    console.log(text);
     await sendTelegramMessage({
       chatId: process.env.TELEGRAM_CHAT_ID_DEFAULT,
       text,
@@ -90,6 +93,7 @@ function startTradeQueue() {
   setInterval(processTradeQueue, TRADE_QUEUE_INTERVAL);
 }
 
+startTradeQueue();
 module.exports = {
   startTradeQueue,
   addTradeJob,

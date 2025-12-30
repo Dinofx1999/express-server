@@ -83,7 +83,6 @@ function updatePriceBufferFromMT4(rawData) {
       auto_trade: String(rawData.auto_trade ?? ""),
       batch: String(rawData.batch ?? ""),
     };
-
     // active broker theo key lowercase
     activeBrokers.add(brokerKey);
 

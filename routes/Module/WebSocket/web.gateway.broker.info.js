@@ -62,9 +62,6 @@ function setupWebSocketServer(port) {
     const interval = setInterval(function ping() {
         wss.clients.forEach(async function each(ws) {
             //Lấy Thông Tin của 1 Broker
-            // const data = await Redis.getBroker(ws.Broker);
-            // console.log("WS INFO BROKER - ", ws.Broker);
-            console.log("WS INFO BROKER - ", ws.Broker);
             const list = await getAllPricesByBroker(ws.Broker);
             ws.send(JSON.stringify({time: getTimeGMT7() , data: list }));
         });

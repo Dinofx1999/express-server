@@ -592,7 +592,7 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
 
   // ---- A) meta: 2 field / broker (1 lần)
   for (const b of BRKS) {
-    pipe.hmget(`broker_meta:${b}`, "typeaccount", "status");
+    pipe.hmget(`broker_meta:${b}`, "typeaccount", "status","timecurent");
   }
 
   // ---- B) snaps: broker × symbol
@@ -609,10 +609,11 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
   for (let i = 0; i < BRKS.length; i++) {
     const b = BRKS[i];
     const [err, arr] = res[i] || [];
-    const [typeaccount, status] = (!err && Array.isArray(arr)) ? arr : [];
+    const [typeaccount, status, timecurent] = (!err && Array.isArray(arr)) ? arr : [];
     metaMap.set(b, {
       typeaccount: typeaccount ?? "",
       status: status ?? "",
+      timecurent_a: timecurent ?? "",
     });
   }
 
@@ -637,12 +638,16 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
       const m = metaMap.get(b) || { typeaccount: "", status: "" };
 
       const index = h.index ?? h.indexBroker ?? ""; // ưu tiên từ snap
-        if(h.timedelay < -1800) continue; // bỏ broker timedelay > 5s
+        if(h.timedelay < -1800 || h.trade !== "TRUE") {
+          // console.log("BYPASS BROKER TIMEDELAY >", b, h.timedelay);
+          continue;
+        }  // bỏ broker timedelay > 5s
       arr.push({
         ...h,
         broker_: b,
         typeaccount: m.typeaccount ?? h.typeaccount ?? "",
         Status: m.status ?? h.status ?? "",
+        timecurent_broker: m.timecurent_a ?? h.timecurrent ?? "",
         index,
       });
     }
@@ -663,6 +668,127 @@ async function getBestBrokerBySymbol(symbol) {
   const arr = await redis.zrange(bestzKey(sym), 0, 0);
   return arr && arr[0] ? arr[0] : null;
 }
+
+// Dùng trong redis.helper2.js hoặc file query import getRedis(), brokerMetaKey(), snapKey()
+// Nếu bạn đặt trong redis.helper2.js thì có sẵn getRedis() và key builders.
+
+async function getBestBrokerDataBySymbol(symbol, opts = {}) {
+  const {
+    requireTradeTrue = false,     // nếu muốn lọc trade === "TRUE"
+    minTimedelay = null,          // ví dụ -1800
+    requireBidAsk = true,         // bắt buộc có bid & ask
+  } = opts;
+
+  const redis = getRedis();
+  const sym = String(symbol || "").toUpperCase().trim();
+  if (!sym) return null;
+
+  // 1) Lấy brokers
+  const brokers = await redis.smembers("brokers");
+  if (!brokers || brokers.length === 0) return null;
+
+  // 2) Pipeline: hgetall snap + hmget meta(status,index,broker,typeaccount,...) (1 pipe là nhanh nhất)
+  const pipe = redis.pipeline();
+  for (const b of brokers) {
+    pipe.hgetall(`snap:${b}:${sym}`);
+    // hmget để lấy nhiều field meta 1 lần
+    pipe.hmget(`broker_meta:${b}`, "status", "index", "broker", "typeaccount", "auto_trade");
+  }
+  const res = await pipe.exec();
+
+  let bestTrue = null;   // best trong nhóm status True
+  let bestAll = null;    // best trong tất cả
+
+  function pickBetter(curBest, cand) {
+    if (!curBest) return cand;
+    // index nhỏ hơn thắng
+    if (cand.index < curBest.index) return cand;
+    return curBest;
+  }
+
+  for (let i = 0; i < brokers.length; i++) {
+    const broker_ = brokers[i];
+
+    const snap = res[i * 2]?.[1];
+    const metaArr = res[i * 2 + 1]?.[1]; // [status,index,broker,typeaccount,auto_trade]
+
+    if (!snap || Object.keys(snap).length === 0) continue;
+
+    // require bid/ask
+    if (requireBidAsk) {
+      const bid = Number(snap.bid);
+      const ask = Number(snap.ask);
+      if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) continue;
+    }
+
+    // lọc trade
+    if (requireTradeTrue) {
+      if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
+    }
+
+    // lọc timedelay
+    if (minTimedelay !== null) {
+      const td = Number(snap.timedelay);
+      if (Number.isFinite(td) && td < minTimedelay) continue;
+    }
+
+    const status = String(metaArr?.[0] ?? snap.status ?? "");
+    const index = Number(metaArr?.[1] ?? snap.index ?? snap.indexBroker);
+    const indexNum = Number.isFinite(index) ? index : 999999999;
+
+    const brokerDisplay = String(metaArr?.[2] ?? snap.broker ?? broker_).toUpperCase();
+    const typeaccount = String(metaArr?.[3] ?? snap.typeaccount ?? "");
+    const auto_trade = String(metaArr?.[4] ?? snap.auto_trade ?? "");
+
+    // build candidate chuẩn output UI
+    const candidate = {
+      broker_,
+      brokerDisplay,
+      index: indexNum,
+      status,
+      typeaccount,
+      auto_trade,
+      snap: {
+        ...snap,
+        broker_: broker_,
+        broker: brokerDisplay,
+        typeaccount,
+        auto_trade,
+        Status: status, // ✅ field UI bạn hay dùng
+      },
+    };
+
+    // bestAll
+    bestAll = pickBetter(bestAll, candidate);
+
+    // bestTrue
+    if (String(status) === "True") {
+      bestTrue = pickBetter(bestTrue, candidate);
+    }
+  }
+
+  const best = bestTrue || bestAll;
+  if (!best) return null;
+
+  // 3) lấy OHLC của broker best (key chart:ohlc:<broker_>:<SYMBOL>)
+  let ohlc = [];
+  try {
+    const raw = await redis.get(`chart:ohlc:${best.broker_}:${sym}`);
+    if (raw) ohlc = JSON.parse(raw);
+  } catch {}
+
+  // 4) return đúng format bạn cần
+  return {
+    title: `${sym} | ${best.broker_} | Bid&Ask`,
+    broker_: best.broker_,
+    brokerDisplay: best.broker_,
+    ohlc,
+    snap: best.snap,
+    note: best.snap ? undefined : "NO_PRICE_SNAP",
+  };
+}
+
+
 
 // ===================== ADMIN / CLEANUP =====================
 async function deleteByPattern(pattern) {
@@ -792,6 +918,12 @@ async function flushAll() {
   return await redis.flushdb();
 }
 
+async function flushAllRedis() {
+  const redis = getRedis();
+  await redis.flushdb();
+  console.log("[REDIS] All data flushed");
+}
+
 // ===================== EXPORTS =====================
 module.exports = {
   getRedis,
@@ -810,10 +942,12 @@ module.exports = {
   getBestBrokerBySymbol,
   getAllPricesByBroker,
   getBrokerResetting,  
+  getBestBrokerDataBySymbol,
 
   // cleanup
   deleteSymbol,
   deleteBroker,
+  flushAllRedis,
   flushAll,
   deleteByPattern,
   deleteBrokerCompletely,

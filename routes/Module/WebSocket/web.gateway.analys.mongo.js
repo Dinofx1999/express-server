@@ -84,15 +84,6 @@ function setupWebSocketServer(port) {
             });
 
             ws.on('close', function close() {
-                // const client = Client_Connected.get(ws.id);
-                // if (client) {
-                //     log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Client disconnected:", client.Broker);
-                //     Redis.deleteBroker(client.Broker).catch(err => 
-                //         log(colors.red, `FX_CLIENT - ${port} `, colors.reset, "Error deleting broker:", err)
-                //     );
-                //     Client_Connected.delete(ws.id);
-                // }
-                // Stop job khi disconnect
                 stopJob(ws.id);
             });
         });
