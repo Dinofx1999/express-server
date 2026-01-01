@@ -60,7 +60,7 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
 router.put('/account-user/:id', authRequired, async function (req, res) {
   try {
     const { id } = req.params;
-
+     
     // Những field cho phép update
     const allowFields = ['name', 'email', 'rule', 'actived', 'password', 'username'];
     const updateData = {};
@@ -68,7 +68,7 @@ router.put('/account-user/:id', authRequired, async function (req, res) {
     for (const key of allowFields) {
       if (req.body[key] !== undefined) updateData[key] = req.body[key];
     }
-
+console.log('Updating user with ID:', id, 'with data:', updateData);
     // Normalize username nếu có
     if (updateData.username) updateData.username = String(updateData.username).toLowerCase().trim();
     if (updateData.email) updateData.email = String(updateData.email).toLowerCase().trim();

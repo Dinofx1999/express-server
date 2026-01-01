@@ -152,7 +152,7 @@ function setupWebSocketServer(port) {
 
   // ✅ Broadcast loop
   function startBroadcastLoop() {
-    const INTERVAL = 120; // 120-200ms ok
+    const INTERVAL = 60; // 120-200ms ok
     const redis = RedisH2.getRedis();
 
     async function broadcast() {
