@@ -1,20 +1,17 @@
-const { getSymbolInfo } = require("../Jobs/Func.helper");
 const Redis = require("../Redis/clientRedis");
-const { Analysis } = require("../Jobs/Analysis");
-const { Analysis_Type2 } = require("../Jobs/Analysis_Type2");
 const { connectMongoDB } = require("../../Database/mongodb");
-const { getAllSymbolConfigs } = require("../../Database/symbol-config.helper");
-const { colors } = require("../Helpers/Log");
 const { getTimeGMT7 } = require("../Helpers/time");
+const { isForexSymbol } = require("../Helpers/typeSymbol");
 const SymbolDebounceQueue = require("../Redis/DebounceQueue");
 const { configAdmin } = require("../../../models/index");
 
-const { getBrokerResetting,
+const {
+  getBrokerResetting,
   getAllBrokers,
   getMultipleSymbolAcrossBrokersWithMetaFast,
-  getRedis } = require('../Redis/redis.helper2');
+  getRedis,
+} = require("../Redis/redis.helper2");
 const { getAllUniqueSymbols } = require("../Redis/redis.price.query");
-const { startSession } = require("../../../models/UserLogin");
 
 const queue = new SymbolDebounceQueue({
   debounceTime: 5000, // 5s không có payload mới
@@ -63,11 +60,22 @@ async function startJob() {
       return;
     }
 
-
-
     // ⇨ Nếu không nằm trong start–end thì job tiếp tục chạy
     try {
-      await ScanTimeOpenSymbol();
+      const timeConfig = config?.TimeStopReset;
+      let Check_Run = true;
+      timeConfig?.map(async (timeRange) => {
+        const start = replaceTime(timeCurrent, timeRange.start);
+        const end = replaceTime(timeCurrent, timeRange.end);
+        if (timeCurrent >= start && timeCurrent <= end) {
+          Check_Run = false;
+          return;
+        }
+      });
+      if (Check_Run === true) {
+        await ScanTimeOpenSymbol();
+        Check_Run = true;
+      }
     } catch (err) {
       console.error(`[JOB ${process.pid}] Scan error:`, err);
     }
@@ -93,75 +101,69 @@ async function startJob() {
   );
 }
 
-function timeToNumber(t) {
-  return Number(t.replaceAll(":", ""));
-}
-
 async function ScanTimeOpenSymbol() {
-
   const ALL_Symbol = await getAllUniqueSymbols();
   const All_Broker = await getAllBrokers();
   // Chuẩn hóa symbols
-  const symbols = ALL_Symbol
-    .map(s => String(s).trim().toUpperCase())
-    .filter(Boolean);
+  const symbols = ALL_Symbol.map((s) => String(s).trim().toUpperCase()).filter(
+    Boolean
+  );
 
   // 2️⃣ Lấy TẤT CẢ price data 1 lần (thay vì 272 calls!)
-  const priceDataMap_ = await getMultipleSymbolAcrossBrokersWithMetaFast(symbols, All_Broker, getRedis());
+  const priceDataMap_ = await getMultipleSymbolAcrossBrokersWithMetaFast(
+    symbols,
+    All_Broker,
+    getRedis()
+  );
   const resetting = await getBrokerResetting();
-  if(Array.isArray(resetting) && resetting.length > 0) return;
+  if (Array.isArray(resetting) && resetting.length > 0) return;
   symbols?.map(async (sym) => {
     try {
+      const Check_Reset = isForexSymbol(sym);
+      if (Check_Reset) return;
       const priceData = priceDataMap_.get(sym);
-      if(priceData?.length > 1) {
+      if (priceData?.length > 1) {
         priceData.map(async (data) => {
           try {
-              const timetrade = JSON.parse(data.timetrade) || [];
-              const  broker = data.Broker || data.broker_ || "no broker";
-              timetrade?.forEach(async (timeEntry) => {
-                 
-                  const last_reset = data.last_reset || "";
-                  const status = timeEntry.status || "";
-                  const timeConfig = config?.TimeStopReset;
-                  const time_current = data.timecurrent;
-                   const time_open_symbol = replaceTime(time_current,timeEntry.open);
+            const timetrade = JSON.parse(data.timetrade) || [];
+            const broker = data.Broker || data.broker_ || "no broker";
+            timetrade?.forEach(async (timeEntry) => {
+              const last_reset = data.last_reset || "";
+              const status = timeEntry.status || "";
 
-                  // console.log(timeConfig);
-                  
-                  if (status === "true" && last_reset < time_open_symbol) {
-                  // if (status === "true" && last_reset > time_open_symbol && sym === "XAUUSD") {
-                    timeConfig?.map(async (timeRange) => {
-                      const start = replaceTime(time_current,timeRange.start);
-                      const end = replaceTime(time_current,timeRange.end);
-                      if ((time_open_symbol) >= start && (time_open_symbol) <= end){
-                        return;
-                      }else{
-                        // if(sym === "VIX")console.log(start, " < ",time_open_symbol ," < " , end , " : ", time_current , "Last: " , last_reset);
-                          const groupKey = "RESET";
-                          const payload = {
-                            symbol: sym,
-                            broker,
-                          };
-                          const result = queue.receive(
-                            groupKey,
-                            payload,
-                            async (symb, meta) => {
-                              console.log(`🚀 Processing: ${symb}`);
-                              console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);
-                              await Redis.publish(
-                                "RESET_ALL",
-                                JSON.stringify({
-                                  Symbol: symb,
-                                  Broker: "ALL-BROKERS-SYMBOL",
-                                })
-                              );
-                            });
-                          }
-                    }); 
+              const time_current = data.timecurrent;
+              const time_open_symbol = replaceTime(
+                time_current,
+                timeEntry.open
+              );
+              if (status === "true" && last_reset < time_open_symbol) {
+                const groupKey = "RESET";
+                const payload = {
+                  symbol: sym,
+                  broker,
+                };
+                const result = queue.receive(
+                  groupKey,
+                  payload,
+                  async (symb, meta) => {
+                    console.log(`🚀 Processing: ${symb}`);
+                    console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);
+                    await Redis.publish(
+                      "RESET_ALL",
+                      JSON.stringify({
+                        Symbol: symb,
+                        Broker: "ALL-BROKERS-SYMBOL",
+                      })
+                    );
                   }
-              });
+                );
+              }
+            });
           } catch (err) {
-            console.error(`[ScanTimeOpen] Error processing data for ${sym}:`, err.message);
+            console.error(
+              `[ScanTimeOpen] Error processing data for ${sym}:`,
+              err.message
+            );
           }
         });
       }
@@ -453,10 +455,10 @@ async function ScanTimeOpenSymbol() {
 //   }
 // }
 
-
 // ================================
 // ⭐ Hàm replaceTime đã đúng
 // ================================
+
 function replaceTime(A, B) {
   const [datePart] = A.split(" ");
   return `${datePart} ${B}`;
