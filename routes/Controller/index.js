@@ -12,8 +12,8 @@ const {  API_ALL_INFO_BROKERS ,
 
 const Redis = require('../Module/Redis/clientRedis');
 const RedisH2 = require('../Module/Redis/redis.helper2');
-const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
-const {flushAllRedis} = require('../Module/Redis/redis.helper2');
+const { getAllBrokers , getBrokerMeta,getPrice ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
+const {flushAllRedis , getAllPricesByBroker} = require('../Module/Redis/redis.helper2');
 const PriceFlush = require('../Module/Redis/priceBuffer.redisFlush');
 // RedisH.initRedis({
 //   host: '127.0.0.1',
@@ -33,6 +33,18 @@ router.get(`/${API_ALL_INFO_BROKERS}`,authRequired, async function(req, res, nex
  const data = await getAllBrokers();
   return res.status(200).json(data);
 });
+
+router.get(`/${API_ALL_INFO_BROKERS}:broker/info`,authRequired, async function(req, res, next) {
+  console.log("Params Broker:", req.params.broker);
+ const data = await getAllPricesByBroker(req.params.broker);
+ let result = [];
+ data.map(item => {
+    if(item.trade.toUpperCase() === "TRUE")result.push(item.symbol);
+ });
+  return res.status(200).json(result);
+});
+
+
 router.get(`/${VERSION}/:symbol/getdata`,authRequired, async function(req, res, next) {
   const { symbol } = req.params;
  const test = await getSymbolAcrossBrokers(symbol);
@@ -136,16 +148,22 @@ router.get(`/${VERSION}/:symbol/:broker/:type_order/:price_bid/:key_secret/order
     'code' : 1
   });
 });
-router.get(`/${VERSION}/:symbol/:broker/test_reset`,authRequired, async function(req, res, next) {
-  const { broker , symbol} = req.params;
-  const Broker_Check = await RedisH.getBrokerMeta(broker);
+router.get(`/${VERSION}/:broker/:symbol/:points/test-reset`,authRequired, async function(req, res, next) {
+  const { broker , symbol , points} = req.params;
+  const Broker_Check = await getBrokerMeta(broker);
   const PORT = Broker_Check?.port || null;
-  await Redis.publish(String(PORT), JSON.stringify({
-    Symbol: symbol,
-    Broker: broker,
-    Type : "Test_price"
-  }));
-  res.status(200).json({ message: "Reset all brokers initiated." });
+  if(Broker_Check){
+     const PORT = Broker_Check?.port || null;
+     await Redis.publish(String(PORT), JSON.stringify({
+        Symbol: symbol,
+        Broker: broker,
+        Points: points,
+        Type : "Test_price"
+      }));
+  res.status(200).json({ message: `Sended Broker ${broker} for Symbol ${symbol} with Points ${points}.`, success: true });
+  }else{
+    res.status(400).json({ message: `Broker ${broker} Not Found.` , success: false });
+  }
 });
 router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, next) {
   await Redis.publish("RESET_ALL", JSON.stringify({
@@ -186,7 +204,7 @@ async function resetBrokersLoop() {
   const redis = RedisH2.getRedis();
 
   // ✅ lấy list broker theo kiểu mới: SET "brokers"
-  const brokerList = await RedisH2.getAllBrokers(); // array: ['b','ab',...]
+  const brokerList = await RedisH2.getAllBrokers_TRUE(); // array: ['b','ab',...]
   console.log("Brokers to reset:", brokerList);
   if (!brokerList || brokerList.length <= 1) {
     console.log('❌ No brokers to reset');

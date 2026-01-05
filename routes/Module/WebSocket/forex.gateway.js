@@ -130,7 +130,8 @@ function setupWebSocketServer(port) {
             for (const [id, element] of Client_Connected.entries()) {
                 if(element.Broker == Broker) {
                     if (element.ws.readyState === WebSocket.OPEN) {
-                        const Mess = JSON.stringify({type: "Test_price", Success: 1, message: channel.Symbol});
+                        const Mess = JSON.stringify({type: "Test_price", Success: 1, message: channel.Symbol , data: channel.Points});
+                        console.log(Color_Log_Success, "Received Test_price message:", Mess , " - Send to Broker:", Broker);
                         element.ws.send(Mess);
                     }
                 }
@@ -341,7 +342,7 @@ function setupWebSocketServer(port) {
                                 await onBrokerStatusChange(formatString(Broker), reset_text);
                                 
                                 const Response = await getSymbolOfMinIndexBroker(Symbol);
-                                // console.log(Color_Log_Success, "SYNC_PRICE - Response:", Response);
+                                // console.log(Color_Log_Success, "SYNC_PRICE - Response:", Response,Response.index ,Index_Broker);
                                 let responseData;
                                 let logColor;
                                 if (Response && Response.index < Index_Broker) {

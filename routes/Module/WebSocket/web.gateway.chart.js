@@ -204,7 +204,6 @@ function setupWebSocketServer(port) {
             minTimedelay: -1800,
           });
 
-        // if(symbol === "BTCJPY") console.log("BEST BROKER BTCJPY", bestBroker___);
         const Broker = bestBroker___.broker_ || null;
         let c2, c3;
 
@@ -238,9 +237,9 @@ function setupWebSocketServer(port) {
           // Nếu bestz có nhưng snap2 chưa có => fallback hiển thị NO_SNAP
           c2 = buildChart({
             chartId: 'c2',
-            title: `${symbol} | ${bestBroker_} | Bid&Ask`,
-            broker_: bestBroker_,
-            brokerDisplay: bestBroker_,
+            title: `${symbol} | ${Broker} | Bid&Ask`,
+            broker_: Broker,
+            brokerDisplay: Broker,
             ohlc: ohlc2,
             snap: snap2,
             note: snap2 ? undefined : 'NO_PRICE_SNAP_BEST',

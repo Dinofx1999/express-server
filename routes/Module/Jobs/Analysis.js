@@ -6,7 +6,7 @@ const {getSymbolInfo , getForexSession ,Digit , Digit_Rec} = require('../Jobs/Fu
 const Redis = require('../Redis/clientRedis');
 const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.helper');
 
- async function Analysis(data, symbol ,symbolConfig_data , spread_plus, Delay_Stop) {
+ async function Analysis(data, symbol ,symbolConfig_data ,Delay_Stop, spread_plus) {
     try {
 
     let total_length = data.length;
@@ -33,8 +33,8 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             if(SESSION === "Tokyo") SPREAD_X_SESSION = symbolConfig_data.Tokyo;
             if(SESSION === "London") SPREAD_X_SESSION = symbolConfig_data.London;
             if(SESSION === "NewYork") SPREAD_X_SESSION = symbolConfig_data.NewYork;
-            if( CURRENT.typeaccount === "STD") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
-            if( CURRENT.typeaccount === "ECN") SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
+            if( CURRENT.typeaccount === "STD" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_STD) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
+            if( CURRENT.typeaccount === "ECN" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_ECN) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
         
         //Check BUY
@@ -50,7 +50,9 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         if(Number(data[i].timedelay)<0)
             Type = 'Delay Price Stop';
 
-    //   if(symbol === "GBPUSD") console.log(CURRENT.typeaccount, SPREAD_MIN_CURRENT , SPREAD_X_SESSION , SPREAD_X_CURRENT , Spread_Sync , Point_Spread , Price_BUY_CURRENT , Price_BUY_CHECK );
+    //   if(symbol === "GBPUSD" && CURRENT.broker ==="B") console.log("SPREAD MIN: " , SPREAD_MIN_CURRENT ,
+    //     " , Spread x: ", SPREAD_X_SESSION ,
+    //     " , Spread X Cr: ", spread_plus , " , Spread S: ", Spread_Sync , Point_Spread , Price_BUY_CURRENT , " < " , Price_BUY_CHECK );
         if(parseFloat(Price_BUY_CURRENT) < parseFloat(Price_BUY_CHECK)){
             const timeStart = getTimeGMT7();
             const Payload = {
@@ -73,13 +75,20 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             await Insert_UpdateAnalysisConfig(symbol,Payload);
         }
 
-        //Check SELL
+        // Check SELL
         
         let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf) - parseFloat(Point_Spread);
         let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf);
 
+            
+
         if(parseFloat(Price_SELL_CURRENT) > parseFloat(Price_SELL_CHECK)){
             const timeStart = getTimeGMT7();
+
+            if(symbol === "TW88") console.log(CURRENT.broker,"SPREAD MIN: " , SPREAD_MIN_CURRENT ,
+        " , Spread x: ", SPREAD_X_SESSION ,
+        " , Spread X Cr: ", spread_plus , " , Spread S: ", Spread_Sync , Point_Spread , Price_SELL_CURRENT , " > " , Price_SELL_CHECK );
+
             const Payload = {
                     Broker: CURRENT.broker,
                     TimeStart: timeStart,

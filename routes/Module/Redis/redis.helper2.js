@@ -360,6 +360,51 @@ async function getAllBrokers() {
   return list.map(item => item.broker);
 }
 
+async function getAllBrokers_TRUE() {
+  const redis = getRedis();
+
+  // 1. Lấy danh sách broker
+  const brokers = await redis.smembers("brokers");
+  if (!brokers.length) return [];
+
+  // 2. Lấy status + index của từng broker
+  const pipe = redis.pipeline();
+  for (const b of brokers) {
+    pipe.hmget(`broker_meta:${b}`, "status", "index");
+  }
+
+  const res = await pipe.exec();
+
+  // 3. Ghép broker + index (bỏ status = Disconnect)
+  const list = [];
+
+  for (let i = 0; i < brokers.length; i++) {
+    const broker = brokers[i];
+    const metaArr = res[i]?.[1] || [];
+
+    const statusRaw = metaArr[0];
+    const indexRaw = metaArr[1];
+
+    // ✅ bỏ broker Disconnect
+    const statusStr = String(statusRaw || "").trim().toLowerCase();
+    if (statusStr === "disconnect") continue;
+
+    const idx = Number(indexRaw);
+
+    list.push({
+      broker,
+      index: Number.isFinite(idx) ? idx : 999999, // không có index -> đẩy xuống cuối
+    });
+  }
+
+  // 4. Sort theo index tăng dần
+  list.sort((a, b) => a.index - b.index);
+
+  // 5. Trả về đúng format bạn cần
+  return list.map(item => item.broker);
+}
+
+
 async function getSymbolsByBroker(broker) {
   const redis = getRedis();
   const b = normalizeBroker(broker);
@@ -636,9 +681,9 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
 
 
       const m = metaMap.get(b) || { typeaccount: "", status: "" };
-
+      
       const index = h.index ?? h.indexBroker ?? ""; // ưu tiên từ snap
-        if(h.timedelay < -1800 || h.trade !== "TRUE") {
+        if(h.timedelay < -1800 || h.trade !== "TRUE" || String(m.status) !== "True"){
           // console.log("BYPASS BROKER TIMEDELAY >", b, h.timedelay);
           continue;
         }  // bỏ broker timedelay > 5s
@@ -724,7 +769,8 @@ async function getBestBrokerDataBySymbol(symbol, opts = {}) {
     // lọc trade
     if (requireTradeTrue) {
       if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
-    }
+    } 
+
 
     // lọc timedelay
     if (minTimedelay !== null) {
@@ -733,6 +779,9 @@ async function getBestBrokerDataBySymbol(symbol, opts = {}) {
     }
 
     const status = String(metaArr?.[0] ?? snap.status ?? "");
+    if(status !== "True"){
+      continue;
+    }
     const index = Number(metaArr?.[1] ?? snap.index ?? snap.indexBroker);
     const indexNum = Number.isFinite(index) ? index : 999999999;
 
@@ -943,6 +992,7 @@ module.exports = {
   getAllPricesByBroker,
   getBrokerResetting,  
   getBestBrokerDataBySymbol,
+  getAllBrokers_TRUE,
 
   // cleanup
   deleteSymbol,

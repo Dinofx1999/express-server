@@ -120,11 +120,12 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
     const [e2, metaArr] = res2[i] || [];
     const status = !e2 && metaArr ? metaArr[0] : "";
     const auto_trade = !e2 && metaArr ? metaArr[1] : "";
-  
+    
+    if (status.toUpperCase() !== "TRUE") continue;
     // ✅ field đúng UI
     snap.Status = status ?? "";
     snap.auto_trade = auto_trade ?? ""; // <-- thêm auto_trade
-
+    // console.log(snap);
     out.push(snap);
   }
 
