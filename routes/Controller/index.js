@@ -205,7 +205,7 @@ async function resetBrokersLoop() {
 
   // ✅ lấy list broker theo kiểu mới: SET "brokers"
   const brokerList = await RedisH2.getAllBrokers_TRUE(); // array: ['b','ab',...]
-  console.log("Brokers to reset:", brokerList);
+  // console.log("Brokers to reset:", brokerList);
   if (!brokerList || brokerList.length <= 1) {
     console.log('❌ No brokers to reset');
     return { success: false, message: 'No brokers to reset' };

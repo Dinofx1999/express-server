@@ -433,7 +433,7 @@ async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
 
     // ✅ chỉ loại khi Disconnect (không phân biệt hoa/thường + trim)
     const statusStr = String(statusRaw ?? "").trim().toLowerCase();
-    console.log("BROKER STATUS: ", broker_, statusStr);
+    // console.log("BROKER STATUS: ", broker_, statusStr);
     if (statusStr === "disconnect") continue;
 
     // ✅ index ưu tiên snap → meta

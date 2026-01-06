@@ -36,6 +36,36 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             if( CURRENT.typeaccount === "STD" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_STD) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
             if( CURRENT.typeaccount === "ECN" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_ECN) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
+        let Digit_ = parseInt(CHECK.digit);
+        let Point =  parseFloat(Digit(Digit_));
+        let BID_CHECK = parseFloat(CHECK.bid_mdf);
+        let ASK_CHECK = parseFloat(CHECK.ask_mdf);
+        let SPREAD_POINT = parseFloat(SPREAD_MIN_CURRENT) * Point;
+        let ASK_CHECK_MDF = ASK_CHECK + SPREAD_POINT;
+        let SPREAD_PLUS = parseFloat(SPREAD_X_CURRENT * SPREAD_X_SESSION * SPREAD_MIN_CURRENT);
+        let SPREAD_PLUS_POINT = parseFloat(SPREAD_PLUS * Point);
+        let ASK_CR = parseFloat(CURRENT.ask_mdf);
+        let BID_CR = parseFloat(CURRENT.bid_mdf);
+
+        //  if(symbol === "GBPUSD")  console.log("Digit: ", Digit_ ,
+        //     " , Point: ", Point ,
+        //     "SPREAD_X_SESSION: ", SPREAD_X_SESSION ,
+        //     " , SPREAD MIN CURRENT: ", SPREAD_MIN_CURRENT,
+        //     " , SPREAD POINT: ", SPREAD_POINT,
+        //     " , ASK CHECK: ", ASK_CHECK ,
+        //     " , ASK CHECK MDF: ", ASK_CHECK_MDF ,
+        //     " , SPREAD PLUS: ", SPREAD_PLUS ,
+        //     " , SPREAD PLUS POINT: ", SPREAD_PLUS_POINT 
+        //     );
+
+
+
+
+
+
+
+
+
         
         //Check BUY
         let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT* SPREAD_X_SESSION * SPREAD_X_CURRENT);       //Spread thay doi theo tung broker
@@ -53,7 +83,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
     //   if(symbol === "GBPUSD" && CURRENT.broker ==="B") console.log("SPREAD MIN: " , SPREAD_MIN_CURRENT ,
     //     " , Spread x: ", SPREAD_X_SESSION ,
     //     " , Spread X Cr: ", spread_plus , " , Spread S: ", Spread_Sync , Point_Spread , Price_BUY_CURRENT , " < " , Price_BUY_CHECK );
-        if(parseFloat(Price_BUY_CURRENT) < parseFloat(Price_BUY_CHECK)){
+        if(parseFloat(ASK_CR) < parseFloat(BID_CHECK - SPREAD_PLUS_POINT)){
             const timeStart = getTimeGMT7();
             const Payload = {
                     Broker: CURRENT.broker,
@@ -82,7 +112,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
 
             
 
-        if(parseFloat(Price_SELL_CURRENT) > parseFloat(Price_SELL_CHECK)){
+        if(parseFloat(BID_CR) > parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)){
             const timeStart = getTimeGMT7();
 
             if(symbol === "TW88") console.log(CURRENT.broker,"SPREAD MIN: " , SPREAD_MIN_CURRENT ,

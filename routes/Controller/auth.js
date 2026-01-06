@@ -56,13 +56,87 @@ router.post(API_REGISTER, validateSchema(registerSchema), async function (req, r
     }
 });
 
+
+// ===================== UPDATE ME (SELF) =====================
+router.put('/account-user/me', authRequired, async function (req, res) {
+  try {
+    // Tuỳ authMiddleware của bạn: thường req.user.sub hoặc req.user.username
+    const usernameFromToken = req.user?.sub || req.user?.username;
+    if (!usernameFromToken) {
+      return res.status(401).json({ ok: false, message: 'Token không hợp lệ' });
+    }
+
+    // Field user được phép tự sửa (KHÔNG cho sửa role/actived)
+    const allowFields = ['name', 'email', 'password' ,'username', 'last_online'];
+    const updateData = {};
+
+    for (const key of allowFields) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
+
+    if (updateData.email) updateData.email = String(updateData.email).toLowerCase().trim();
+    delete updateData.id_SECRET;
+
+    const user = await userLogin.findOne({ username: usernameFromToken });
+    if (!user) return res.status(404).json({ ok: false, message: 'User không tồn tại' });
+
+    // Check trùng email nếu đổi
+    if (updateData.email && updateData.email !== user.email) {
+      const existsEmail = await userLogin.findOne({ email: updateData.email, _id: { $ne: user._id } });
+      if (existsEmail) return res.status(409).json({ ok: false, message: 'email đã tồn tại' });
+    }
+
+    Object.assign(user, updateData);
+    await user.save();
+
+       // ===================== LẤY TẤT CẢ USER =====================
+    const users = await userLogin.find(
+      {},
+      {
+        _id: 0,
+        username: 1,
+        name: 1,
+        last_online: 1,
+      }
+    ).lean();
+
+    const usersFormatted = users.map(u => ({
+      username: u.username,
+      fullname: u.name,
+      last_online: u.last_online,
+    }));
+
+
+    return res.json({
+      ok: true,
+      message: 'Cập nhật thông tin thành công',
+      data: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.rule,
+        fullname: user.name,
+        actived: user.actived,
+        id_SECRET: user.id_SECRET,
+        last_online: user.last_online
+      },
+      all_users: usersFormatted
+
+
+    });
+  } catch (err) {
+    console.error('Lỗi update me:', err);
+    return res.status(500).json({ ok: false, message: 'Lỗi server' });
+  }
+});
+
 // ===================== UPDATE USER (ADMIN) =====================
 router.put('/account-user/:id', authRequired, async function (req, res) {
   try {
     const { id } = req.params;
      
     // Những field cho phép update
-    const allowFields = ['name', 'email', 'rule', 'actived', 'password', 'username'];
+    const allowFields = ['name', 'email', 'rule', 'actived', 'password', 'username', 'last_online'];
     const updateData = {};
 
     for (const key of allowFields) {
@@ -108,8 +182,10 @@ console.log('Updating user with ID:', id, 'with data:', updateData);
         role: user.rule,
         fullname: user.name,
         actived: user.actived,
-        id_SECRET: user.id_SECRET
-      }
+        id_SECRET: user.id_SECRET,
+        last_online: user.last_online
+      },
+      all_users: await userLogin.find({}).lean()
     });
   } catch (err) {
     console.error('Lỗi update user:', err);
@@ -118,56 +194,6 @@ console.log('Updating user with ID:', id, 'with data:', updateData);
 });
 
 
-// ===================== UPDATE ME (SELF) =====================
-router.put('/account-user/me', authRequired, async function (req, res) {
-  try {
-    // Tuỳ authMiddleware của bạn: thường req.user.sub hoặc req.user.username
-    const usernameFromToken = req.user?.sub || req.user?.username;
-    if (!usernameFromToken) {
-      return res.status(401).json({ ok: false, message: 'Token không hợp lệ' });
-    }
-
-    // Field user được phép tự sửa (KHÔNG cho sửa role/actived)
-    const allowFields = ['name', 'email', 'password'];
-    const updateData = {};
-
-    for (const key of allowFields) {
-      if (req.body[key] !== undefined) updateData[key] = req.body[key];
-    }
-
-    if (updateData.email) updateData.email = String(updateData.email).toLowerCase().trim();
-    delete updateData.id_SECRET;
-
-    const user = await userLogin.findOne({ username: usernameFromToken });
-    if (!user) return res.status(404).json({ ok: false, message: 'User không tồn tại' });
-
-    // Check trùng email nếu đổi
-    if (updateData.email && updateData.email !== user.email) {
-      const existsEmail = await userLogin.findOne({ email: updateData.email, _id: { $ne: user._id } });
-      if (existsEmail) return res.status(409).json({ ok: false, message: 'email đã tồn tại' });
-    }
-
-    Object.assign(user, updateData);
-    await user.save();
-
-    return res.json({
-      ok: true,
-      message: 'Cập nhật thông tin thành công',
-      data: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        role: user.rule,
-        fullname: user.name,
-        actived: user.actived,
-        id_SECRET: user.id_SECRET
-      }
-    });
-  } catch (err) {
-    console.error('Lỗi update me:', err);
-    return res.status(500).json({ ok: false, message: 'Lỗi server' });
-  }
-});
 
 
 

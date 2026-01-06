@@ -84,10 +84,37 @@ function parseSnapshotHash(h, broker_) {
   };
 }
 
-/**
- * Lấy snaps cho 1 symbol + gắn Status từ broker_meta vào từng broker
- * Output: Array items, mỗi item có thêm field Status
- */
+
+function isTruthyStatus(v) {
+  if (v === true) return true;
+  if (v === 1) return true;
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
+
+function safeParseTimetrade(tt) {
+  // tt có thể: array | string json | null
+  if (Array.isArray(tt)) return tt;
+  if (typeof tt === "string") {
+    const s = tt.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function hasActiveTradeWindow(timetrade) {
+  const arr = safeParseTimetrade(timetrade);
+  if (!arr.length) return false;
+  // ✅ chỉ cần có 1 item status=true là hợp lệ
+  return arr.some(it => isTruthyStatus(it?.status));
+}
+
 async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
   if (!brokers || brokers.length === 0) return [];
 
@@ -102,35 +129,91 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
     pipe2.hmget(brokerMetaKey(b), "status", "auto_trade");
   }
   const res2 = await pipe2.exec();
-  
+
   const out = [];
   for (let i = 0; i < brokers.length; i++) {
     const broker_ = brokers[i];
+
     const [e1, h] = res1[i] || [];
     if (e1 || !h || Object.keys(h).length === 0) continue;
-//  console.log(h);
-    const snap = parseSnapshotHash(h, broker_);
 
+    const snap = parseSnapshotHash(h, broker_);
     if (!snap) continue;
 
-    // ✅ lọc timedelay + trade
+    // ✅ lọc timedelay
     if (Number(snap.timedelay) < -1800) continue;
+
+    // ✅ lọc trade flag (giữ nguyên của bạn)
     if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
+
+    // ✅ NEW: timetrade phải có ít nhất 1 item status=true
+    // snap.timetrade có thể là array hoặc string JSON
+    if (!hasActiveTradeWindow(snap.timetrade)) continue;
 
     const [e2, metaArr] = res2[i] || [];
     const status = !e2 && metaArr ? metaArr[0] : "";
     const auto_trade = !e2 && metaArr ? metaArr[1] : "";
-    
-    if (status.toUpperCase() !== "TRUE") continue;
+
+    if (String(status || "").toUpperCase() !== "TRUE") continue;
+
     // ✅ field đúng UI
     snap.Status = status ?? "";
-    snap.auto_trade = auto_trade ?? ""; // <-- thêm auto_trade
-    // console.log(snap);
+    snap.auto_trade = auto_trade ?? "";
+
     out.push(snap);
   }
 
   return out;
 }
+
+/**
+ * Lấy snaps cho 1 symbol + gắn Status từ broker_meta vào từng broker
+ * Output: Array items, mỗi item có thêm field Status
+ */
+// async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
+//   if (!brokers || brokers.length === 0) return [];
+
+//   // 1) lấy snap all brokers
+//   const pipe1 = redis.pipeline();
+//   for (const b of brokers) pipe1.hgetall(snapKey(b, sym));
+//   const res1 = await pipe1.exec();
+
+//   // 2) lấy meta all brokers (status + auto_trade) - vẫn "nhẹ"
+//   const pipe2 = redis.pipeline();
+//   for (const b of brokers) {
+//     pipe2.hmget(brokerMetaKey(b), "status", "auto_trade");
+//   }
+//   const res2 = await pipe2.exec();
+  
+//   const out = [];
+//   for (let i = 0; i < brokers.length; i++) {
+//     const broker_ = brokers[i];
+//     const [e1, h] = res1[i] || [];
+//     if (e1 || !h || Object.keys(h).length === 0) continue;
+// //  console.log(h);
+//     const snap = parseSnapshotHash(h, broker_);
+
+//     if (!snap) continue;
+
+//     // ✅ lọc timedelay + trade
+//     console.log("TIMEDELAY:", snap.timetrade);
+//     if (Number(snap.timedelay) < -1800) continue;
+//     if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
+
+//     const [e2, metaArr] = res2[i] || [];
+//     const status = !e2 && metaArr ? metaArr[0] : "";
+//     const auto_trade = !e2 && metaArr ? metaArr[1] : "";
+    
+//     if (status.toUpperCase() !== "TRUE") continue;
+//     // ✅ field đúng UI
+//     snap.Status = status ?? "";
+//     snap.auto_trade = auto_trade ?? ""; // <-- thêm auto_trade
+//     // console.log(snap);
+//     out.push(snap);
+//   }
+
+//   return out;
+// }
 
 
 // -------- main ----------

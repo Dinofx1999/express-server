@@ -626,6 +626,38 @@ function numIndex(x) {
   return Number.isFinite(n) ? n : 999999999;
 }
 
+function isTruthyStatus(v) {
+  if (v === true) return true;
+  if (v === 1) return true;
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
+
+function safeParseTimetrade(tt) {
+  // tt có thể: array | string json | null
+  if (Array.isArray(tt)) return tt;
+
+  if (typeof tt === "string") {
+    const s = tt.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function hasActiveTradeWindow(timetrade) {
+  const arr = safeParseTimetrade(timetrade);
+  if (!arr.length) return false;
+  // ✅ chỉ cần có 1 item status=true là hợp lệ
+  return arr.some((it) => isTruthyStatus(it?.status));
+}
+
 async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redis) {
   const SYMS = Array.isArray(symbols) ? symbols.map(normSymbol).filter(Boolean) : [];
   if (SYMS.length === 0) return new Map();
@@ -635,9 +667,9 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
 
   const pipe = redis.pipeline();
 
-  // ---- A) meta: 2 field / broker (1 lần)
+  // ---- A) meta: 3 field / broker (1 lần)
   for (const b of BRKS) {
-    pipe.hmget(`broker_meta:${b}`, "typeaccount", "status","timecurent");
+    pipe.hmget(`broker_meta:${b}`, "typeaccount", "status", "timecurent");
   }
 
   // ---- B) snaps: broker × symbol
@@ -650,7 +682,7 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
   const res = await pipe.exec();
 
   // ---- parse meta
-  const metaMap = new Map(); // broker_ -> {typeaccount, status}
+  const metaMap = new Map(); // broker_ -> {typeaccount, status, timecurent_a}
   for (let i = 0; i < BRKS.length; i++) {
     const b = BRKS[i];
     const [err, arr] = res[i] || [];
@@ -672,6 +704,7 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
 
   for (const sym of SYMS) {
     const arr = outMap.get(sym);
+
     for (const b of BRKS) {
       const idx = base + k;
       k++;
@@ -679,14 +712,21 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
       const [err, h] = res[idx] || [];
       if (err || !h || Object.keys(h).length === 0) continue;
 
+      const m = metaMap.get(b) || { typeaccount: "", status: "", timecurent_a: "" };
 
-      const m = metaMap.get(b) || { typeaccount: "", status: "" };
-      
-      const index = h.index ?? h.indexBroker ?? ""; // ưu tiên từ snap
-        if(h.timedelay < -1800 || h.trade !== "TRUE" || String(m.status) !== "True"){
-          // console.log("BYPASS BROKER TIMEDELAY >", b, h.timedelay);
-          continue;
-        }  // bỏ broker timedelay > 5s
+      // ✅ lấy index: ưu tiên từ snap
+      const index = h.index ?? h.indexBroker ?? "";
+
+      // ✅ filter: timedelay + trade + meta.status (giữ logic của bạn)
+      // NOTE: hgetall trả về string => Number(...) để chắc chắn
+      if (Number(h.timedelay) < -1800) continue;
+      if (String(h.trade || "").toUpperCase() !== "TRUE") continue;
+      if (String(m.status || "") !== "True") continue;
+
+      // ✅ NEW: timetrade phải có ít nhất 1 item status=true
+      // timetrade có thể nằm trong h.timetrade (hoặc bạn đổi key tại đây nếu khác)
+      if (!hasActiveTradeWindow(h.timetrade)) continue;
+
       arr.push({
         ...h,
         broker_: b,
