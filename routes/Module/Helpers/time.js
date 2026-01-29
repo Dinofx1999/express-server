@@ -27,4 +27,17 @@ function getMinuteSecond(timeStr) {
   const [, minute, second] = timePart.split(":");
   return `${minute}:${second}`;
 }
-module.exports = { getTimeGMT7 , getMinuteSecond };
+
+function diffSeconds(A, B) {
+  const parseMT4Time = (s) => {
+    // "2026.01.24 00:13:10" -> "2026-01-24T00:13:10"
+    return new Date(s.replace(/\./g, "-").replace(" ", "T"));
+  };
+
+  const tA = parseMT4Time(A);
+  const tB = parseMT4Time(B);
+
+  return Math.abs((tB - tA) / 1000); // seconds
+}
+
+module.exports = { getTimeGMT7 , getMinuteSecond ,diffSeconds };

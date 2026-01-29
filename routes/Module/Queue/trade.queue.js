@@ -14,6 +14,41 @@ function addTradeJob(trade) {
   console.log('[TradeQueue] Job added. Queue length:', tradeQueue.length);
 }
 
+function Text_errorCode(code) {
+  switch (Number(code)) {
+
+    // ===== LỖI TÀI KHOẢN / MARGIN =====
+    case 134: return "Không đủ tiền (Not enough money / margin)";
+    case 135: return "Giá thay đổi (Price changed)";
+    case 136: return "Không có giá (No prices)";
+    case 138: return "Requote – giá bị báo lại";
+    case 146: return "Server bận (Trade context busy)";
+
+    // ===== LỖI KHỐI LƯỢNG / LOT =====
+    case 131: return "Khối lượng không hợp lệ (Invalid volume)";
+    case 132: return "Thị trường đóng cửa (Market closed)";
+
+    // ===== LỖI LỆNH / GIÁ =====
+    case 129: return "Giá không hợp lệ (Invalid price)";
+    case 130: return "Stop Loss / Take Profit không hợp lệ";
+    case 133: return "Giao dịch bị cấm (Trade disabled)";
+    case 145: return "Lệnh bị sửa đổi bởi broker";
+
+    // ===== LỖI EXECUTION / BROKER =====
+    case 10030: return "Broker không hỗ trợ kiểu khớp lệnh (Unsupported filling mode)";
+    case 4107:  return "Không được phép giao dịch EA (EA disabled)";
+    case 4108:  return "Giao dịch bị chặn bởi server";
+    case 4110:  return "Trade context chưa sẵn sàng";
+
+    // ===== LỖI SYMBOL / TÀI SẢN =====
+    case 4106: return "Symbol không tồn tại";
+    case 4051: return "Không đủ quyền truy cập";
+
+    default:
+      return `Mã lỗi không xác định (${code})`;
+  }
+}
+
 // Hàm format message gửi Telegram
 function formatTradeMessage(trade) {
   const Type      = trade.Type;
@@ -28,6 +63,8 @@ function formatTradeMessage(trade) {
   const Status    = trade.Status || "SUCCESS";
   const Spread    = trade.Spread || "";
   const Message   = trade.Message || "";
+
+  if(Message === "Fail") Comment = Text_errorCode(getErrorCode(Message));
 
   // Emoji và text theo status
   const statusEmoji = Status === "SUCCESS" ? "✅" : "❌";
@@ -58,6 +95,10 @@ function formatTradeMessage(trade) {
   ].filter(line => line !== ``).join('\n');
 }
 
+const getErrorCode = (str) => {
+  const match = str.match(/\d+/);
+  return match ? Number(match[0]) : null;
+};
 // Worker xử lý từng job trong queue
 async function processTradeQueue() {
 
@@ -75,6 +116,12 @@ async function processTradeQueue() {
     console.log(text);
     await sendTelegramMessage({
       chatId: process.env.TELEGRAM_CHAT_ID_DEFAULT,
+      text,
+      parse_mode: 'Markdown',
+    });
+
+    await sendTelegramMessage({
+      chatId: process.env.TELEGRAM_CHAT_ID_ADMIN,
       text,
       parse_mode: 'Markdown',
     });

@@ -16,15 +16,98 @@ var {  ErrorAnalysis} = require('../../models/index');
 // });
 
 
-router.get('/all', async function(req, res, next) {
-    try {
-        const Data = await ErrorAnalysis.find({$expr: { $lt: ["$TimeStart", "$TimeCurrent"] }})
-                               .sort({ TimeStart: -1 });
-        return res.status(200).json(Data); // Trả về body, không phải toàn bộ req
-    } catch (error) {
-        return res.status(400).json(error); 
+router.put('/:id/stable', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { IsStable } = req.body;
+
+    if (typeof IsStable !== 'boolean') {
+      return res.status(400).json({
+        ok: false,
+        message: 'IsStable phải là boolean',
+      });
     }
+
+    const updated = await ErrorAnalysis.findByIdAndUpdate(
+      id,
+      { $set: { IsStable } },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        ok: false,
+        message: 'Không tìm thấy bản ghi',
+      });
+    }
+
+    res.json({
+      ok: true,
+      data: updated,
+    });
+  } catch (err) {
+    console.error('Update IsStable error:', err);
+    res.status(500).json({
+      ok: false,
+      message: 'Server error',
+    });
+  }
 });
+
+
+router.get('/:id/is-stable', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        ok: false,
+        message: 'Thiếu id',
+      });
+    }
+
+    const doc = await ErrorAnalysis.findById(
+      id,
+      { IsStable: 1 } // ✅ chỉ lấy field cần thiết
+    ).lean();
+
+    if (!doc) {
+      return res.status(404).json({
+        ok: false,
+        message: 'Không tìm thấy bản ghi',
+      });
+    }
+
+    res.json({
+      ok: true,
+      _id: doc._id,
+      IsStable: doc.IsStable,
+    });
+  } catch (err) {
+    console.error('Get IsStable error:', err);
+    res.status(500).json({
+      ok: false,
+      message: 'Server error',
+    });
+  }
+});
+
+
+
+router.get('/all', async function (req, res) {
+  try {
+    const Data = await ErrorAnalysis.find({
+      $expr: { $lt: ['$TimeStart', '$TimeCurrent'] },
+      KhoangCach: { $ne: 0 },
+      Count: { $gt: 1 },
+    }).sort({ TimeStart: -1 });
+
+    return res.status(200).json(Data);
+  } catch (error) {
+    return res.status(400).json(error);
+  }
+});
+
 
 router.post('/getErro_Symbol', async function(req, res, next) {
     try {

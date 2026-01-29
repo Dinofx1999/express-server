@@ -11,6 +11,7 @@
 
 const { raw } = require("express");
 const Redis = require("ioredis");
+const { getTimeGMT7  , diffSeconds} = require('../Helpers/time');
 
 // ===================== CONFIG =====================
 const DEFAULT_REDIS_CONFIG = {
@@ -719,10 +720,19 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
 
       // ✅ filter: timedelay + trade + meta.status (giữ logic của bạn)
       // NOTE: hgetall trả về string => Number(...) để chắc chắn
+      let diff = diffSeconds(getTimeGMT7(), m.timecurent_a);
+
+      // if(sym === "GBPUSD"){
+        // console.log("TIME CURRENT A:", m.timecurent_a , getTimeGMT7(), " DIFF:", diff);
+      // }
+       if(diff > 3 || diff < -3){ 
+        // console.log(`BROKER ${b} SKIPPED FOR SYMBOL ${sym} DUE TO TIME DIFF ${diff}s`);
+        continue;
+      };
       if (Number(h.timedelay) < -1800) continue;
       if (String(h.trade || "").toUpperCase() !== "TRUE") continue;
       if (String(m.status || "") !== "True") continue;
-
+     
       // ✅ NEW: timetrade phải có ít nhất 1 item status=true
       // timetrade có thể nằm trong h.timetrade (hoặc bạn đổi key tại đây nếu khác)
       if (!hasActiveTradeWindow(h.timetrade)) continue;
@@ -1043,5 +1053,5 @@ module.exports = {
   deleteBrokerCompletely,
   deleteBrokerAndRelatedIndex,
   getMultipleSymbolDetails_RedisH,
-  getMultipleSymbolAcrossBrokersWithMetaFast
+  getMultipleSymbolAcrossBrokersWithMetaFast,
 };

@@ -12,8 +12,8 @@ const {  API_ALL_INFO_BROKERS ,
 
 const Redis = require('../Module/Redis/clientRedis');
 const RedisH2 = require('../Module/Redis/redis.helper2');
-const { getAllBrokers , getBrokerMeta,getPrice ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
-const {flushAllRedis , getAllPricesByBroker} = require('../Module/Redis/redis.helper2');
+const { getAllBrokers , getBrokerMeta,getAllUniqueSymbols ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
+const {flushAllRedis , getAllPricesByBroker ,getMultipleSymbolAcrossBrokersWithMetaFast , getRedis} = require('../Module/Redis/redis.helper2');
 const PriceFlush = require('../Module/Redis/priceBuffer.redisFlush');
 // RedisH.initRedis({
 //   host: '127.0.0.1',
@@ -57,12 +57,21 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
   const PORT = Broker_Check?.port || null;
   const INDEX = Broker_Check?.index || null;
   const message = `Reset Received for Broker: ${broker} , Symbol: ${symbol}`;
-// console.log("Broker_Check:", Broker_Check , " PORT:", PORT , " INDEX:", INDEX);
+ console.log(message);
+
+
   if(PORT && INDEX !== '0' && INDEX !== 0 && INDEX !== null){
-    await Redis.publish(String(PORT), JSON.stringify({
-    Symbol: symbol,
-    Broker: broker,
-  }));
+
+    
+
+    if(broker.toUpperCase() === 'ALL'){
+      const Broker = await SymbolInfo(symbol);
+    }else{
+        await Redis.publish(String(PORT), JSON.stringify({
+          Symbol: symbol,
+          Broker: broker,
+        }));
+    }
     return res.status(200).json({
       'mess' : message,
       'code' : 1
@@ -361,6 +370,43 @@ async function resetBrokersLoop() {
     isResetting = false;
   }
 }
+
+const SymbolInfo = async (symbol) => {
+  const ALL_Symbol = await getAllUniqueSymbols();
+  const All_Broker = await getAllBrokers();
+  const symbols = ALL_Symbol
+        .map(s => String(s).trim())
+        .filter(Boolean);
+  const priceDataMap = await getMultipleSymbolAcrossBrokersWithMetaFast(symbols , All_Broker ,getRedis());
+  const priceData = priceDataMap.get(symbol);
+  
+  for(let i = 0 ; i < priceData.length ; i ++){
+    const broker = priceData[i].broker_;
+    const index = priceData[i].index;
+    const PORT = priceData[i]?.port || null;
+    if(i === 0){
+      if(index === '0' || index === 0){
+        console.log(`Broker ${broker} is in index 0, skipping.`);
+        continue;
+      }
+       await Redis.publish(String(PORT), JSON.stringify({
+        Symbol: symbol,
+        Broker: broker,
+      }));
+      await sleep(80);
+    }
+    await Redis.publish(String(PORT), JSON.stringify({
+        Symbol: symbol,
+        Broker: broker,
+      }));
+
+    console.log(broker);
+  }
+  
+  return priceData;
+}
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 
 module.exports = router;

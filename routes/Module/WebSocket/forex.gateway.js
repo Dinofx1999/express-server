@@ -169,7 +169,7 @@ function setupWebSocketServer(port) {
         } else {
             for (const [id, element] of Client_Connected.entries()) {
                 if (element.ws.readyState === WebSocket.OPEN) {
-                    if(element.Broker == Broker) {
+                    if(element.Broker == Broker && (element.Index_Broker !== 0 || element.Index_Broker != null || element.Index_Broker !== '0')) {
                         if(channel.Symbol === "ALL-BROKERS") {
                             console.log(Color_Log_Success, `Publish to Broker: ${Broker}`);
                             const Mess = JSON.stringify({type: "Reset_All", Success: 1});
@@ -220,23 +220,23 @@ function setupWebSocketServer(port) {
         handshakeTimeout: 10000,
     });
 
-    setInterval(async () => {
-  const now = Date.now();
-  for (const [broker_, sess] of brokerSession.entries()) {
-    if (!sess?.lastSeen) continue;
-    if ((now - sess.lastSeen) <= BROKER_TIMEOUT_MS) continue;
+//     setInterval(async () => {
+//   const now = Date.now();
+//   for (const [broker_, sess] of brokerSession.entries()) {
+//     if (!sess?.lastSeen) continue;
+//     if ((now - sess.lastSeen) <= BROKER_TIMEOUT_MS) continue;
 
-    console.log(Color_Log_Error, `[TIMEOUT] broker=${broker_} -> cleanup broker+index`);
+//     console.log(Color_Log_Error, `[TIMEOUT] broker=${broker_} -> cleanup broker+index`);
 
-    brokerSession.delete(broker_);
+//     brokerSession.delete(broker_);
 
-    // ✅ xoá sạch broker + index liên quan (đúng đề xuất)
-    await deleteBrokerAndRelatedIndex(broker_).catch(() => {});
+//     // ✅ xoá sạch broker + index liên quan (đúng đề xuất)
+//     await deleteBrokerAndRelatedIndex(broker_).catch(() => {});
 
-    // (optional) cập nhật status
-    await setBrokerStatus(broker_, "Disconnect").catch(() => {});
-  }
-}, 2000).unref?.();
+//     // (optional) cập nhật status
+//     await setBrokerStatus(broker_, "Disconnect").catch(() => {});
+//   }
+// }, 2000).unref?.();
 
     wss.on('error', function(error) {
         console.log(Color_Log_Error, "WebSocket Server Error:", error);
@@ -279,8 +279,9 @@ function setupWebSocketServer(port) {
                             const Broker_Check = await RedisH.getBrokerMeta(formattedBrokerName);
                             if(Broker_Check == null || Broker_Check.index === Index_Broker) {
                                 log(colors.green, `FX_CLIENT - ${port}`, colors.green, message);
+                                if("Equiti MT5" === BrokerName)log(colors.red, `FX_CLIENT - ${port}`, colors.green, VerNum);
                                 ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 1, message: `Version = ${Version}, Index = ${Index_Broker}, Broker = ${BrokerName}, Key_SECRET = ${Key_SECRET} => Success`, Data: getTimeGMT7('datetime')}));
-                                Client_Connected.set(ws.id, { ws, Broker: formattedBrokerName, Key_SECRET });
+                                Client_Connected.set(ws.id, { ws, Broker: formattedBrokerName, Key_SECRET,Index_Broker });
 
                                 // ✅ chỉ cleanup khi đã accept connection
                                 await deleteBrokerAndRelatedIndex(formattedBrokerName).catch(() => {});
@@ -361,9 +362,9 @@ function setupWebSocketServer(port) {
                                     responseData = {
                                         Symbol: Symbol,
                                         Broker: Broker,
-                                        Bid: 'null',
-                                        Digit: 'null',
-                                        Time: 'null',
+                                        Bid: 'Null',
+                                        Digit: 'Null',
+                                        Time: 'Null',
                                         Index: Index,
                                         Type: data.Type
                                     };
@@ -402,7 +403,7 @@ function setupWebSocketServer(port) {
 
                                 const broker_ = formatString(rawData.broker_ || rawData.broker);
                                 const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
-
+                                // console.log("Received PRICE_SNAP from broker:", broker_, " index:", idx);
                                 // ✅ heartbeat for timeout + bind session to current ws
                                 const sess = touchBrokerSession(broker_, ws, idx);
 

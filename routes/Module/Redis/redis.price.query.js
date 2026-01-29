@@ -341,75 +341,25 @@ async function getBestSymbolByIndex(symbol, opts = {}) {
   return best;
 }
 
-// async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
-//   const sym = String(symbol || "").toUpperCase().trim();
-//   if (!sym) return null;
-
-//   const { staleMs = 0 } = opts; // nếu muốn lọc dữ liệu cũ: vd 2000
-
-//   const brokers = await redis.smembers("brokers");
-//   if (!brokers.length) return null;
-
-//   const pipe = redis.pipeline();
-
-//   // 1) lấy snap + meta.index (fallback)
-//   for (const b of brokers) {
-//     pipe.hgetall(`snap:${b}:${sym}`);
-//     pipe.hmget(`broker_meta:${b}`, "status", "index"); 
-//   }
-
-//   const res = await pipe.exec();
-//   console.log("RES LENGTH: ", res);
-//   let best = null;
-//   const now = Date.now();
-
-//   for (let i = 0; i < brokers.length; i++) {
-//     const broker_ = brokers[i];
-
-//     const snap = res[i * 2]?.[1];
-//     const metaIndex = res[i * 2 + 1]?.[1];
-//     if (!snap || !snap.bid || !snap.ask) continue;
-//     if(snap.timedelay && Number(snap.timedelay) < -1800)  continue; // bỏ timedelay > 30p
-
-//     // ✅ index ưu tiên từ snap (chuẩn nhất), fallback meta
-//     const idxRaw = snap.indexBroker ?? snap.index ?? metaIndex;
-//     const idx = Number(idxRaw);
-//     const indexNum = Number.isFinite(idx) ? idx : Infinity;
-
-//     // (optional) bỏ snap quá cũ
-//     const recv = Number(snap.receivedAt || 0);
-//     if (staleMs > 0 && recv > 0 && (now - recv) > staleMs) continue;
-
-//     const candidate = {
-//       broker_,
-//       index: indexNum,
-//       ...snap,
-//     };
-
-//     if (!best || candidate.index < best.index) best = candidate;
-//   }
-
-//   return best; // best.symbol chính là symbol của broker index nhỏ nhất
-// }
-
 async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
   const sym = String(symbol || "").toUpperCase().trim();
   if (!sym) return null;
 
-  const { staleMs = 0 } = opts;
+  const { staleMs = 0 } = opts; // nếu muốn lọc dữ liệu cũ: vd 2000
 
   const brokers = await redis.smembers("brokers");
-  if (!brokers || !brokers.length) return null;
+  if (!brokers.length) return null;
 
   const pipe = redis.pipeline();
 
+  // 1) lấy snap + meta.index (fallback)
   for (const b of brokers) {
     pipe.hgetall(`snap:${b}:${sym}`);
-    pipe.hmget(`broker_meta:${b}`, "status", "index");
+    pipe.hmget(`broker_meta:${b}`, "status", "index"); 
   }
 
   const res = await pipe.exec();
-
+  // console.log("RES LENGTH: ", res);
   let best = null;
   const now = Date.now();
 
@@ -417,46 +367,96 @@ async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
     const broker_ = brokers[i];
 
     const snap = res[i * 2]?.[1];
-    const metaArr = res[i * 2 + 1]?.[1] || [];
-    const metaStatus = metaArr[0];
-    const metaIndex = metaArr[1];
+    const metaIndex = res[i * 2 + 1]?.[1];
+    if (!snap || !snap.bid || !snap.ask) continue;
+    if(snap.timedelay && Number(snap.timedelay) < -1800)  continue; // bỏ timedelay > 30p
 
-    // phải có snap + bid/ask
-    if (!snap || snap.bid == null || snap.ask == null) continue;
-
-    // bỏ timedelay quá 30p (giữ đúng logic bạn)
-    if (snap.timedelay && Number(snap.timedelay) < -1800) continue;
-
-    // ✅ status: ưu tiên snap, fallback meta
-    const statusRaw = snap.status ?? metaStatus;
-
-
-    // ✅ chỉ loại khi Disconnect (không phân biệt hoa/thường + trim)
-    const statusStr = String(statusRaw ?? "").trim().toLowerCase();
-    // console.log("BROKER STATUS: ", broker_, statusStr);
-    if (statusStr === "disconnect") continue;
-
-    // ✅ index ưu tiên snap → meta
+    // ✅ index ưu tiên từ snap (chuẩn nhất), fallback meta
     const idxRaw = snap.indexBroker ?? snap.index ?? metaIndex;
-    const idxNum = Number(idxRaw);
-    const indexNum = Number.isFinite(idxNum) ? idxNum : Infinity;
+    const idx = Number(idxRaw);
+    const indexNum = Number.isFinite(idx) ? idx : Infinity;
 
-    // optional: bỏ snap quá cũ
+    // (optional) bỏ snap quá cũ
     const recv = Number(snap.receivedAt || 0);
-    if (staleMs > 0 && recv > 0 && now - recv > staleMs) continue;
+    if (staleMs > 0 && recv > 0 && (now - recv) > staleMs) continue;
 
     const candidate = {
       broker_,
       index: indexNum,
-      status: statusRaw, // ✅ trả ra status
       ...snap,
     };
 
     if (!best || candidate.index < best.index) best = candidate;
   }
 
-  return best; // broker index nhỏ nhất + status != Disconnect
+  return best; // best.symbol chính là symbol của broker index nhỏ nhất
 }
+
+// async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
+//   const sym = String(symbol || "").toUpperCase().trim();
+//   if (!sym) return null;
+
+//   const { staleMs = 0 } = opts;
+
+//   const brokers = await redis.smembers("brokers");
+//   if (!brokers || !brokers.length) return null;
+
+//   const pipe = redis.pipeline();
+
+//   for (const b of brokers) {
+//     pipe.hgetall(`snap:${b}:${sym}`);
+//     pipe.hmget(`broker_meta:${b}`, "status", "index");
+//   }
+
+//   const res = await pipe.exec();
+
+//   let best = null;
+//   const now = Date.now();
+
+//   for (let i = 0; i < brokers.length; i++) {
+//     const broker_ = brokers[i];
+
+//     const snap = res[i * 2]?.[1];
+//     const metaArr = res[i * 2 + 1]?.[1] || [];
+//     const metaStatus = metaArr[0];
+//     const metaIndex = metaArr[1];
+
+//     // phải có snap + bid/ask
+//     if (!snap || snap.bid == null || snap.ask == null) continue;
+
+//     // bỏ timedelay quá 30p (giữ đúng logic bạn)
+//     if (snap.timedelay && Number(snap.timedelay) < -1800) continue;
+
+//     // ✅ status: ưu tiên snap, fallback meta
+//     const statusRaw = snap.status ?? metaStatus;
+
+
+//     // ✅ chỉ loại khi Disconnect (không phân biệt hoa/thường + trim)
+//     const statusStr = String(statusRaw ?? "").trim().toLowerCase();
+//     // console.log("BROKER STATUS: ", broker_, statusStr);
+//     if (statusStr === "disconnect") continue;
+
+//     // ✅ index ưu tiên snap → meta
+//     const idxRaw = snap.indexBroker ?? snap.index ?? metaIndex;
+//     const idxNum = Number(idxRaw);
+//     const indexNum = Number.isFinite(idxNum) ? idxNum : Infinity;
+
+//     // optional: bỏ snap quá cũ
+//     const recv = Number(snap.receivedAt || 0);
+//     if (staleMs > 0 && recv > 0 && now - recv > staleMs) continue;
+
+//     const candidate = {
+//       broker_,
+//       index: indexNum,
+//       status: statusRaw, // ✅ trả ra status
+//       ...snap,
+//     };
+
+//     if (!best || candidate.index < best.index) best = candidate;
+//   }
+
+//   return best; // broker index nhỏ nhất + status != Disconnect
+// }
 
 
 

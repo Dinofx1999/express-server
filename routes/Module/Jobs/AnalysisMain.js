@@ -5,7 +5,7 @@ const { Analysis_Type2 } = require('../Jobs/Analysis_Type2');
 const { connectMongoDB } = require('../../Database/mongodb');
 const { getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
 const { colors } = require('../Helpers/Log');
-const {getMinuteSecond ,getTimeGMT7} = require('../Helpers/time');
+const {getMinuteSecond ,getTimeGMT7 , diffSeconds} = require('../Helpers/time');
 
 let ConfigSymbol = [];
 let symbolConfigMap = new Map();

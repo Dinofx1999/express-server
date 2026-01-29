@@ -36,6 +36,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             if( CURRENT.typeaccount === "STD" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_STD) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
             if( CURRENT.typeaccount === "ECN" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_ECN) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
+
         let Digit_ = parseInt(CHECK.digit);
         let Point =  parseFloat(Digit(Digit_));
         let BID_CHECK = parseFloat(CHECK.bid_mdf);
@@ -68,22 +69,24 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
 
         
         //Check BUY
-        let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT* SPREAD_X_SESSION * SPREAD_X_CURRENT);       //Spread thay doi theo tung broker
-        let Point_Spread = Spread_Sync * parseFloat(Digit(parseInt(CHECK.digit))); //Chuyen sang point
+        // let Spread_Sync = parseFloat(SPREAD_MIN_CURRENT* SPREAD_X_SESSION * SPREAD_X_CURRENT);       //Spread thay doi theo tung broker
+        // let Point_Spread = Spread_Sync * parseFloat(Digit(parseInt(CHECK.digit))); //Chuyen sang point
 
-        //Check Buy
-        let Price_BUY_CURRENT = parseFloat(CURRENT.ask_mdf) + parseFloat(Point_Spread);
-        let Price_BUY_CHECK = parseFloat(CHECK.bid_mdf);
+        // //Check Buy
+        // let Price_BUY_CURRENT = parseFloat(CURRENT.ask_mdf) + parseFloat(Point_Spread);
+        // let Price_BUY_CHECK = parseFloat(CHECK.bid_mdf);
 
         //Type
         let Type = 'Delay Price';
         if(Number(data[i].timedelay)<0)
             Type = 'Delay Price Stop';
 
-    //   if(symbol === "GBPUSD" && CURRENT.broker ==="B") console.log("SPREAD MIN: " , SPREAD_MIN_CURRENT ,
+    //   if(symbol === "NZDUSD" && CURRENT.broker ==="valutrade-mt5") console.log("SPREAD MIN: " , SPREAD_MIN_CURRENT ,
     //     " , Spread x: ", SPREAD_X_SESSION ,
     //     " , Spread X Cr: ", spread_plus , " , Spread S: ", Spread_Sync , Point_Spread , Price_BUY_CURRENT , " < " , Price_BUY_CHECK );
         if(parseFloat(ASK_CR) < parseFloat(BID_CHECK - SPREAD_PLUS_POINT)){
+            const KhoangCach = parseFloat((parseFloat(BID_CHECK - SPREAD_PLUS_POINT) - parseFloat(ASK_CR)))*parseFloat(Digit_Rec(parseInt(CHECK.digit))) ;
+            // if(symbol === "NZDUSD") console.log(CURRENT.broker,"SPREAD MIN: " , SPREAD_MIN_CURRENT);
             const timeStart = getTimeGMT7();
             const Payload = {
                     Broker: CURRENT.broker,
@@ -93,32 +96,28 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
                     Count: 0,
                     Messenger: "BUY",
                     Broker_Main: CHECK.broker,
-                    KhoangCach: parseInt((Price_BUY_CHECK - Price_BUY_CURRENT)*parseFloat(Digit_Rec(parseInt(CHECK.digit)))) ,
+                    KhoangCach: parseInt(KhoangCach),
                     Symbol_Raw: CURRENT.symbol_raw,
                     Spread_main: CURRENT.spread,
-                    Spread_Sync: Spread_Sync,
+                    Spread_Sync: SPREAD_PLUS,
                     IsStable: false,
                     Type,
                     Delay: CURRENT.timedelay,
             };
-            // console.log(`=> Phát hiện Chậm Giá BUY: ${symbol} | Khoảng Cách: ${Payload.KhoangCach} | Time: ${timeStart}`);
+        //    if(symbol === "NZDUSD") console.log(`=> Phát hiện Chậm Giá BUY: ${symbol} | Khoảng Cách: ${Payload.KhoangCach} | Time: ${timeStart}`,parseFloat(ASK_CR), "<", parseFloat(BID_CHECK - SPREAD_PLUS_POINT) ,KhoangCach);
             await Insert_UpdateAnalysisConfig(symbol,Payload);
         }
 
         // Check SELL
         
-        let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf) - parseFloat(Point_Spread);
-        let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf);
+        // let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf) - parseFloat(Point_Spread);
+        // let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf);
 
             
 
         if(parseFloat(BID_CR) > parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)){
             const timeStart = getTimeGMT7();
-
-            if(symbol === "TW88") console.log(CURRENT.broker,"SPREAD MIN: " , SPREAD_MIN_CURRENT ,
-        " , Spread x: ", SPREAD_X_SESSION ,
-        " , Spread X Cr: ", spread_plus , " , Spread S: ", Spread_Sync , Point_Spread , Price_SELL_CURRENT , " > " , Price_SELL_CHECK );
-
+            const KhoangCach = parseFloat((parseFloat(BID_CR) - parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)))*parseFloat(Digit_Rec(parseInt(CHECK.digit))) ;
             const Payload = {
                     Broker: CURRENT.broker,
                     TimeStart: timeStart,
@@ -127,10 +126,10 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
                     Count: 0,
                     Messenger: "SELL",
                     Broker_Main: CHECK.broker,
-                    KhoangCach: parseInt((Price_SELL_CURRENT - Price_SELL_CHECK)*parseFloat(Digit_Rec(parseInt(CHECK.digit)))) ,
+                    KhoangCach:parseInt(KhoangCach) ,
                     Symbol_Raw: CURRENT.symbol_raw,
                     Spread_main: CURRENT.spread,
-                    Spread_Sync: Spread_Sync,
+                    Spread_Sync: SPREAD_PLUS,
                     IsStable: false,
                     Type,
                     Delay: CURRENT.timedelay,
