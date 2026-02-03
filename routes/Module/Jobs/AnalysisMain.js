@@ -95,7 +95,7 @@ function runAnalysisLoop() {
           //  if(sym === "FRA40") console.log(priceData);
             if (!priceData || priceData.length <= 1) return;
             if(String(Type_Analysis) === 'type1'){
-                await Analysis(priceData, sym, symbolConfig ,Delay_Stop ,Spread_Plus);
+                // await Analysis(priceData, sym, symbolConfig ,Delay_Stop ,Spread_Plus);
             }else if(String(Type_Analysis) === 'type2'){
                 await Analysis_Type2(priceData, sym, symbolConfig , Delay_Stop ,Spread_Plus);
             }

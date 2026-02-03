@@ -65,7 +65,7 @@ function formatTradeMessage(trade) {
   const Message   = trade.Message || "";
 
   if(Message === "Fail") Comment = Text_errorCode(getErrorCode(Message));
-
+  if(Open === 0) Message = "Lệnh bị từ chối bởi broker";
   // Emoji và text theo status
   const statusEmoji = Status === "SUCCESS" ? "✅" : "❌";
   const typeEmoji = Type?.toUpperCase() === "BUY" ? "🟢" : "🔴";

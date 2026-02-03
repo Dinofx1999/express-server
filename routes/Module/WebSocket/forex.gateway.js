@@ -19,6 +19,7 @@ const {updateBrokerMetaFromRaw} = require("../Redis/redis.broker.meta");
 
 const { getAllBrokers , getBrokerMeta,getPrice ,getAllPricesByBroker ,getSymbolOfMinIndexBroker  , getBestSymbolByIndex} = require("../Redis/redis.price.query");
 
+const TYPE_RESET = "";
 // ✅ Track session per broker_ (fix reconnect / tud gate)
 const brokerSession = new Map(); 
 // broker_ -> { wsId, lastSeen, lastTud, indexBroker }
