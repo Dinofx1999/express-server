@@ -2,10 +2,12 @@ const { getSymbolInfo } = require('../Jobs/Func.helper');
 const Redis = require('../Redis/clientRedis');
 const { Analysis } = require('../Jobs/Analysis');
 const { Analysis_Type2 } = require('../Jobs/Analysis_Type2');
+const { Analysis_Type3 } = require('../Jobs/Analysis_Type3');
 const { connectMongoDB } = require('../../Database/mongodb');
 const { getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
 const { colors } = require('../Helpers/Log');
 const {getMinuteSecond ,getTimeGMT7 , diffSeconds} = require('../Helpers/time');
+
 
 let ConfigSymbol = [];
 let symbolConfigMap = new Map();
@@ -21,6 +23,8 @@ RedisH.initRedis({
   db: 0,          // ⚠️ PHẢI giống worker ghi
   compress: true
 });
+
+
 
 async function startJob() {
   console.log(`[JOB ${process.pid}] Analysis booting...`);
@@ -95,9 +99,10 @@ function runAnalysisLoop() {
           //  if(sym === "FRA40") console.log(priceData);
             if (!priceData || priceData.length <= 1) return;
             if(String(Type_Analysis) === 'type1'){
-                // await Analysis(priceData, sym, symbolConfig ,Delay_Stop ,Spread_Plus);
+                await Analysis(priceData, sym, symbolConfig ,Delay_Stop ,Spread_Plus);
             }else if(String(Type_Analysis) === 'type2'){
-                await Analysis_Type2(priceData, sym, symbolConfig , Delay_Stop ,Spread_Plus);
+                // await Analysis_Type2(priceData, sym, symbolConfig , Delay_Stop ,Spread_Plus);
+                await Analysis_Type3(priceData, sym, symbolConfig , Delay_Stop ,Spread_Plus);
             }
           } catch (err) {
             console.error(`[Analysis] Error ${sym}:`, err.message);

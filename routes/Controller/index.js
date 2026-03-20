@@ -9,7 +9,8 @@ const {  API_ALL_INFO_BROKERS ,
           API_ANALYSIS_CONFIG , API_PRICE_SYMBOL ,
           API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL } = require('../Module/Constants/API.Service');
 
-const SymbolDebounceQueue = require("../Module/Redis/DebounceQueue");
+// const SymbolDebounceQueue = require("../Module/Redis/DebounceQueue");
+const queue = require('../Module/Redis/symbolQueue.singleton');
 const Redis = require('../Module/Redis/clientRedis');
 const RedisH2 = require('../Module/Redis/redis.helper2');
 const { getAllBrokers , getBrokerMeta,getAllUniqueSymbols ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
@@ -27,13 +28,13 @@ const { authRequired, requireRole } = require('../Auth/authMiddleware');
 const { calculatePercentage } = require('../Module/Helpers/text.format');
 
 
-const queue = new SymbolDebounceQueue({
-  debounceTime: 100, // 5s không có payload mới
-  maxWaitTime: 100,  // Tối đa 10s
-  maxPayloads: 500,  // Tối đa 5000 unique payloads
-  delayBetweenTasks: 200, // 500ms delay giữa các task
-  cooldownTime: 5000, // 10s cooldown after processing
-});
+// const queue = new SymbolDebounceQueue({
+//   debounceTime: 100, // 5s không có payload mới
+//   maxWaitTime: 100,  // Tối đa 10s
+//   maxPayloads: 500,  // Tối đa 5000 unique payloads
+//   delayBetweenTasks: 100, // 500ms delay giữa các task
+//   cooldownTime: 5000, // 10s cooldown after processing
+// });
 // ✅ Áp dụng auth cho TẤT CẢ routes trong controller này
 // router.use(authRequired);
 
@@ -72,24 +73,15 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
     console.log("Initiating reset for ALL-SYMBOLS across all brokers...");
 
     const ALL_Symbol = await getAllUniqueSymbols();
-    console.log(`Total unique symbols to reset: ${ALL_Symbol.length}`);
-
     ALL_Symbol.forEach((symb, index) => {
       // console.log(`Queueing reset for symbol: ${symb}`);
       const groupKey = "RESET";
       const payload = { symbol: symb, brokers: index };
-
+      
       queue.receive(groupKey, payload, async (symb, meta) => {
         console.log(`🚀 Processing: ${symb}`);
         console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);
-
-        await Redis.publish(
-          "RESET_ALL",
-          JSON.stringify({
-            Symbol: symb,
-            Broker: "ALL-BROKERS-SYMBOL",
-          })
-        );
+        await SymbolInfo(symb);
       });
     });
     
@@ -104,6 +96,7 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
 
   if(PORT && INDEX !== '0' && INDEX !== 0 && INDEX !== null){
     if(broker.toUpperCase() === 'ALL'){
+      
       const Broker = await SymbolInfo(symbol);
     }else{
         await Redis.publish(String(PORT), JSON.stringify({
@@ -418,7 +411,7 @@ const SymbolInfo = async (symbol) => {
         .filter(Boolean);
   const priceDataMap = await getMultipleSymbolAcrossBrokersWithMetaFast(symbols , All_Broker ,getRedis());
   const priceData = priceDataMap.get(symbol);
-  
+  if(!priceData || priceData.length <= 1) return null;
   for(let i = 0 ; i < priceData.length ; i ++){
     const broker = priceData[i].broker_;
     const index = priceData[i].index;
@@ -432,7 +425,7 @@ const SymbolInfo = async (symbol) => {
         Symbol: symbol,
         Broker: broker,
       }));
-      await sleep(80);
+      await sleep(20);
     }
     await Redis.publish(String(PORT), JSON.stringify({
         Symbol: symbol,

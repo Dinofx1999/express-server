@@ -2,9 +2,12 @@ const WebSocket = require('ws');
 const http = require('http');
 require('dotenv').config({ quiet: true });
 const { getTimeGMT7 } = require('../Helpers/time');
+// const SymbolDebounceQueue = require("../Redis/DebounceQueue");
+const queue = require('../Redis/symbolQueue.singleton');
 
 // Import các modules
 const Redis = require('../Redis/clientRedis');
+const RedisManager = require('../Redis/redisManager');
 
 const RedisH = require('../Redis/redis.helper');
 const {getBrokerResetting} = require('../Redis/redis.helper2');
@@ -18,6 +21,14 @@ const { getAllUniqueSymbols} = require("../Redis/redis.price.query");
 
 var Color_Log_Success = "\x1b[32m%s\x1b[0m";
 var Color_Log_Error = "\x1b[31m%s\x1b[0m";
+
+// const queue = new SymbolDebounceQueue({
+//   debounceTime: 100, // 5s không có payload mới
+//   maxWaitTime: 100,  // Tối đa 10s
+//   maxPayloads: 500,  // Tối đa 5000 unique payloads
+//   delayBetweenTasks: 100, // 500ms delay giữa các task
+//   cooldownTime: 5000, // 10s cooldown after processing
+// });
 
 const Client_Connected = new Map();
 const clientIntervals = new Map();  // ← Khai báo ở ngoài, KHÔNG dùng this
@@ -98,6 +109,10 @@ function setupWebSocketServer(port) {
         throw error;
     }
 }
+let lastQueueStatus = [];
+ Redis.subscribe("PROCESS_SYMBOL", async (channel, message) => {
+                        lastQueueStatus[0] = channel.mess;
+                    });
 
 // ✅ START JOB - BỎ this
 async function startJob(client, clientId) {
@@ -119,10 +134,15 @@ async function startJob(client, clientId) {
                 
                 const resetting = await getBrokerResetting();
                 const symbols = await getAllUniqueSymbols();
-                
+
+               
                 // ✅ DEFENSIVE CHECK
                 const analysis = prices || { Type_1: [], Type_2: [], time_analysis: null };
-                
+                let res = lastQueueStatus;
+                if(lastQueueStatus === `Proccess: 0`){
+                    res = resetting;
+                }
+
                 // Build payload
                 const payload = {
                     analysis: {
@@ -132,7 +152,7 @@ async function startJob(client, clientId) {
                     timeAnalysis: analysis.time_analysis || null,
                     timestamp: now,
                     symbols: symbols || [],
-                    resetting: resetting || false
+                    resetting: lastQueueStatus || resetting,
                 };
                 
                 client.send(JSON.stringify(payload));

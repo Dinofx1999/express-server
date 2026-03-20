@@ -8,7 +8,7 @@
  * - Process → Mỗi Symbol chỉ xử lý 1 LẦN (dedupe by symbol)
  * - Cooldown → Payload đã xử lý sẽ bị ignore trong N giây
  */
-
+const Redis = require("../Redis/clientRedis");
 const DEBOUNCE_TIME = 3000;       // 3s không có payload mới
 const MAX_WAIT_TIME = 15000;      // Tối đa 15s
 const MAX_PAYLOADS = 500;         // Tối đa 500 unique payloads
@@ -347,7 +347,12 @@ class SymbolDebounceQueue {
         } = this.currentTask;
 
         console.log(`[PROCESS] 🚀 ${groupKey}:${symbol} - Start (${brokers.length} brokers). Remaining: ${this.queue.length}`);
-
+        await Redis.publish(
+                  "PROCESS_SYMBOL",
+                  JSON.stringify({
+                    mess : `Proccess: ${this.queue.length}`
+                  })
+                );
         try {
             await processor(symbol, { 
                 groupKey,
@@ -382,6 +387,10 @@ class SymbolDebounceQueue {
      */
     _delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    _pushStatusToRedis() {
+    const status = this.getStatus();
+    RedisManager.publish('QUEUE_STATUS', status);
     }
 
     /**
@@ -497,6 +506,7 @@ class SymbolDebounceQueue {
             pendingDebounce: pending
         };
     }
+
 
     /**
      * Force execute một group ngay lập tức

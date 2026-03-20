@@ -1,73 +1,92 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const {userLogin} = require("../../models/index");
-const { validateSchema } = require('../../validations/validateSchema');
-const { loginSchema, registerSchema } = require('../../validations/schemas.yup');
-const {log , colors} = require('../Module/Helpers/Log');
-const crypto = require('crypto');
-const { authRequired, requireRole } = require('../Auth/authMiddleware');
+const { userLogin } = require("../../models/index");
+const { validateSchema } = require("../../validations/validateSchema");
+const { loginSchema, registerSchema } = require("../../validations/schemas.yup");
+const { log, colors } = require("../Module/Helpers/Log");
+const crypto = require("crypto");
+const { authRequired, requireRole } = require("../Auth/authMiddleware");
 
 //HTTP Basic Auth
-const passport = require('passport');
-const BasicStrategy = require('passport-http').BasicStrategy;
-const jwt = require('jsonwebtoken');
+const passport = require("passport");
+const BasicStrategy = require("passport-http").BasicStrategy;
+const jwt = require("jsonwebtoken");
 //JWT Authentication
-const JwtStrategy = require('passport-jwt').Strategy;
-const ExtractJwt = require('passport-jwt').ExtractJwt; //Giải mã ngược Token
+const JwtStrategy = require("passport-jwt").Strategy;
+const ExtractJwt = require("passport-jwt").ExtractJwt; //Giải mã ngược Token
 //JWT Setting
-const jwtSettings = require('../Module/Constants/jwtSetting');
-const {  API_ALL_INFO_BROKERS , 
-          VERSION,
-          API_PORT_BROKER_ENDPOINT, 
-          API_RESET , 
-          API_RESET_ALL_ONLY_SYMBOL ,
-          API_CONFIG_SYMBOL , 
-          API_ANALYSIS_CONFIG , API_PRICE_SYMBOL ,
-          API_RESET_ALL_BROKERS , API_GET_CONFIG_SYMBOL ,API_LOGIN,API_REGISTER } = require('../Module/Constants/API.Service');
-
+const jwtSettings = require("../Module/Constants/jwtSetting");
+const {
+  API_ALL_INFO_BROKERS,
+  VERSION,
+  API_PORT_BROKER_ENDPOINT,
+  API_RESET,
+  API_RESET_ALL_ONLY_SYMBOL,
+  API_CONFIG_SYMBOL,
+  API_ANALYSIS_CONFIG,
+  API_PRICE_SYMBOL,
+  API_RESET_ALL_BROKERS,
+  API_GET_CONFIG_SYMBOL,
+  API_LOGIN,
+  API_REGISTER,
+} = require("../Module/Constants/API.Service");
 
 function generateSecretId(length = 10) {
-  return crypto.randomBytes(Math.ceil(length / 2))
-  .toString('hex')
-  .slice(0, length)
-  .toUpperCase();
+  return crypto
+    .randomBytes(Math.ceil(length / 2))
+    .toString("hex")
+    .slice(0, length)
+    .toUpperCase();
 }
 
-router.post(API_REGISTER, validateSchema(registerSchema), async function (req, res, next) {
+router.post(
+  API_REGISTER,
+  validateSchema(registerSchema),
+  async function (req, res, next) {
     try {
-        req.body.username = req.body.username.toLowerCase();
-        
-        // ═══ THÊM id_SECRET ═══
-        req.body.id_SECRET = generateSecretId(10);
-        
-        const newUser = new userLogin(req.body);
-        await newUser.save();
-        
-        log(colors.green, 'REGISTER', colors.cyan, `Người dùng mới đã được đăng ký: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email} , ID_SECRET: ${req.body.id_SECRET}`);
-        return res.status(200).send({ success: true, message: "Đăng ký thành công" });
-    } catch (err) {
-        if (err.code === 11000) { 
-            const duplicateField = Object.keys(err.keyPattern)[0];
-            log(colors.red, 'REGISTER', colors.yellow, `${duplicateField} đã tồn tại: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email}`);
-            return res.status(409).send({ ok: false, message: `${duplicateField} đã tồn tại` });
-        }
-        console.error("Lỗi:", err);
-        return res.status(500).send({ ok: false, message: "Đã xảy ra lỗi" });
-    }
-});
+      req.body.username = req.body.username.toLowerCase();
 
+      // ═══ THÊM id_SECRET ═══
+      req.body.id_SECRET = generateSecretId(10);
+
+      const newUser = new userLogin(req.body);
+      await newUser.save();
+
+      log(
+        colors.green,
+        "REGISTER",
+        colors.cyan,
+        `Người dùng mới đã được đăng ký: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email} , ID_SECRET: ${req.body.id_SECRET}`
+      );
+      return res.status(200).send({ success: true, message: "Đăng ký thành công" });
+    } catch (err) {
+      if (err.code === 11000) {
+        const duplicateField = Object.keys(err.keyPattern)[0];
+        log(
+          colors.red,
+          "REGISTER",
+          colors.yellow,
+          `${duplicateField} đã tồn tại: ${req.body.name} , Username: ${req.body.username} , Email: ${req.body.email}`
+        );
+        return res.status(409).send({ ok: false, message: `${duplicateField} đã tồn tại` });
+      }
+      console.error("Lỗi:", err);
+      return res.status(500).send({ ok: false, message: "Đã xảy ra lỗi" });
+    }
+  }
+);
 
 // ===================== UPDATE ME (SELF) =====================
-router.put('/account-user/me', authRequired, async function (req, res) {
+router.put("/account-user/me", authRequired, async function (req, res) {
   try {
     // Tuỳ authMiddleware của bạn: thường req.user.sub hoặc req.user.username
     const usernameFromToken = req.user?.sub || req.user?.username;
     if (!usernameFromToken) {
-      return res.status(401).json({ ok: false, message: 'Token không hợp lệ' });
+      return res.status(401).json({ ok: false, message: "Token không hợp lệ" });
     }
 
     // Field user được phép tự sửa (KHÔNG cho sửa role/actived)
-    const allowFields = ['name', 'email', 'password' ,'username', 'last_online'];
+    const allowFields = ["name", "email", "password", "username", "last_online"];
     const updateData = {};
 
     for (const key of allowFields) {
@@ -78,38 +97,43 @@ router.put('/account-user/me', authRequired, async function (req, res) {
     delete updateData.id_SECRET;
 
     const user = await userLogin.findOne({ username: usernameFromToken });
-    if (!user) return res.status(404).json({ ok: false, message: 'User không tồn tại' });
+
+    if (!user) return res.status(404).json({ ok: false, message: "User không tồn tại" });
 
     // Check trùng email nếu đổi
     if (updateData.email && updateData.email !== user.email) {
-      const existsEmail = await userLogin.findOne({ email: updateData.email, _id: { $ne: user._id } });
-      if (existsEmail) return res.status(409).json({ ok: false, message: 'email đã tồn tại' });
+      const existsEmail = await userLogin.findOne({
+        email: updateData.email,
+        _id: { $ne: user._id },
+      });
+      if (existsEmail) return res.status(409).json({ ok: false, message: "email đã tồn tại" });
     }
 
     Object.assign(user, updateData);
     await user.save();
 
-       // ===================== LẤY TẤT CẢ USER =====================
-    const users = await userLogin.find(
-      {},
-      {
-        _id: 0,
-        username: 1,
-        name: 1,
-        last_online: 1,
-      }
-    ).lean();
+    // ===================== LẤY TẤT CẢ USER =====================
+    const users = await userLogin
+      .find(
+        {},
+        {
+          _id: 0,
+          username: 1,
+          name: 1,
+          last_online: 1,
+        }
+      )
+      .lean();
 
-    const usersFormatted = users.map(u => ({
+    const usersFormatted = users.map((u) => ({
       username: u.username,
       fullname: u.name,
       last_online: u.last_online,
     }));
 
-
     return res.json({
       ok: true,
-      message: 'Cập nhật thông tin thành công',
+      message: "Cập nhật thông tin thành công",
       data: {
         id: user._id,
         username: user.username,
@@ -118,32 +142,66 @@ router.put('/account-user/me', authRequired, async function (req, res) {
         fullname: user.name,
         actived: user.actived,
         id_SECRET: user.id_SECRET,
-        last_online: user.last_online
+        last_online: user.last_online,
+        loginWindow: user.loginWindow, // ✅ trả thêm nếu muốn
+        session : isWithinLoginWindow(user),
       },
-      all_users: usersFormatted
-
-
+      all_users: usersFormatted,
     });
   } catch (err) {
-    console.error('Lỗi update me:', err);
-    return res.status(500).json({ ok: false, message: 'Lỗi server' });
+    console.error("Lỗi update me:", err);
+    return res.status(500).json({ ok: false, message: "Lỗi server" });
   }
 });
 
+// ===== helper normalize loginWindow =====
+function normalizeLoginWindow(input = {}) {
+  const out = {};
+
+  if (input.enabled !== undefined) out.enabled = !!input.enabled;
+  if (input.allowOvernight !== undefined) out.allowOvernight = !!input.allowOvernight;
+
+  if (input.startMinute !== undefined) {
+    const v = Number(input.startMinute);
+    out.startMinute = Number.isFinite(v) ? Math.min(1439, Math.max(0, v)) : 0;
+  }
+  if (input.endMinute !== undefined) {
+    const v = Number(input.endMinute);
+    out.endMinute = Number.isFinite(v) ? Math.min(1439, Math.max(0, v)) : 1439;
+  }
+
+  if (input.timezone !== undefined) out.timezone = String(input.timezone || "Asia/Ho_Chi_Minh");
+
+  return out;
+}
+
 // ===================== UPDATE USER (ADMIN) =====================
-router.put('/account-user/:id', authRequired, async function (req, res) {
+router.put("/account-user/:id", authRequired, async function (req, res) {
   try {
     const { id } = req.params;
-     
-    // Những field cho phép update
-    const allowFields = ['name', 'email', 'rule', 'actived', 'password', 'username', 'last_online'];
+
+    // ✅ Những field cho phép update
+    // ✅ THÊM loginWindow
+    const allowFields = [
+      "name",
+      "email",
+      "rule",
+      "actived",
+      "password",
+      "username",
+      "last_online",
+      "loginWindow", // ✅ NEW
+    ];
+
     const updateData = {};
 
     for (const key of allowFields) {
       if (req.body[key] !== undefined) updateData[key] = req.body[key];
     }
-console.log('Updating user with ID:', id, 'with data:', updateData);
-    // Normalize username nếu có
+
+    console.log("Updating user with ID:", id, "with data:", updateData);
+
+    // Normalize username/email nếu có
     if (updateData.username) updateData.username = String(updateData.username).toLowerCase().trim();
     if (updateData.email) updateData.email = String(updateData.email).toLowerCase().trim();
 
@@ -154,27 +212,49 @@ console.log('Updating user with ID:', id, 'with data:', updateData);
     // Check tồn tại user
     const user = await userLogin.findById(id);
     if (!user) {
-      return res.status(404).json({ ok: false, message: 'User không tồn tại' });
+      return res.status(404).json({ ok: false, message: "User không tồn tại" });
     }
 
     // Check trùng username/email (nếu đổi)
     if (updateData.username && updateData.username !== user.username) {
-      const existsUsername = await userLogin.findOne({ username: updateData.username, _id: { $ne: id } });
-      if (existsUsername) return res.status(409).json({ ok: false, message: 'username đã tồn tại' });
+      const existsUsername = await userLogin.findOne({
+        username: updateData.username,
+        _id: { $ne: id },
+      });
+      if (existsUsername) return res.status(409).json({ ok: false, message: "username đã tồn tại" });
     }
 
     if (updateData.email && updateData.email !== user.email) {
-      const existsEmail = await userLogin.findOne({ email: updateData.email, _id: { $ne: id } });
-      if (existsEmail) return res.status(409).json({ ok: false, message: 'email đã tồn tại' });
+      const existsEmail = await userLogin.findOne({
+        email: updateData.email,
+        _id: { $ne: id },
+      });
+      if (existsEmail) return res.status(409).json({ ok: false, message: "email đã tồn tại" });
     }
 
-    // Update
+    // ✅ Handle loginWindow (merge + markModified)
+    if (updateData.loginWindow !== undefined) {
+      const current = user.loginWindow ? user.loginWindow.toObject?.() || user.loginWindow : {};
+      const next = {
+        ...current,
+        ...normalizeLoginWindow(updateData.loginWindow || {}),
+      };
+
+      // set vào user
+      user.loginWindow = next;
+      user.markModified("loginWindow");
+
+      // xoá khỏi updateData để tránh Object.assign set lại lần 2
+      delete updateData.loginWindow;
+    }
+
+    // Update các field còn lại
     Object.assign(user, updateData);
     await user.save();
 
     return res.json({
       ok: true,
-      message: 'Cập nhật tài khoản thành công',
+      message: "Cập nhật tài khoản thành công",
       data: {
         id: user._id,
         username: user.username,
@@ -183,29 +263,28 @@ console.log('Updating user with ID:', id, 'with data:', updateData);
         fullname: user.name,
         actived: user.actived,
         id_SECRET: user.id_SECRET,
-        last_online: user.last_online
+        last_online: user.last_online,
+        loginWindow: user.loginWindow, // ✅ trả về để UI thấy ngay
       },
-      all_users: await userLogin.find({}).lean()
+      all_users: await userLogin.find({}).lean(),
     });
   } catch (err) {
-    console.error('Lỗi update user:', err);
-    return res.status(500).json({ ok: false, message: 'Lỗi server' });
+    console.error("Lỗi update user:", err);
+    return res.status(500).json({ ok: false, message: "Lỗi server" });
   }
 });
 
-
-
-
-
-  router.get('/basic', passport.authenticate('basic', { session: false }), function (req, res, next) {
+router.get(
+  "/basic",
+  passport.authenticate("basic", { session: false }),
+  function (req, res, next) {
     res.json({ ok: true });
-  });
-  
- router.get('/account-user',authRequired, async function (req, res, next) {
+  }
+);
+
+router.get("/account-user", authRequired, async function (req, res, next) {
   try {
     const data = await userLogin.find({}).lean(); // .lean() cho nhẹ & trả về object thuần
-
-    // console.log(data); // lúc này là mảng user đúng nghĩa
     res.json({ ok: true, data });
   } catch (err) {
     console.error("Lỗi /account-user:", err);
@@ -213,29 +292,40 @@ console.log('Updating user with ID:', id, 'with data:', updateData);
   }
 });
 
-  router.post(API_LOGIN, async (req, res, next) => {
+router.post(API_LOGIN, async (req, res, next) => {
   req.body.username = req.body.username.toLowerCase();
   const { username, password } = req.body;
 
   try {
     const userExists = await userLogin.findOne({ username, password });
 
-    // ❌ Không tồn tại user
     if (!userExists) {
-      return res.status(401).send({ success: false, message: 'Tài Khoản không tồn tại' });
+      return res.status(401).send({ success: false, message: "Tài Khoản không tồn tại" });
     }
 
-    // ❌ Chưa active
     if (userExists.actived !== true) {
       return res.status(403).send({
         success: false,
-        message: 'Tài khoản chưa được kích hoạt, vui lòng liên hệ quản trị viên!'
+        message: "Tài khoản chưa được kích hoạt, vui lòng liên hệ quản trị viên!",
       });
     }
 
-    // ✅ Đã active → cấp token
+    // ✅ CHẶN LOGIN THEO KHUNG GIỜ
+    if (!isWithinLoginWindow(userExists)) {
+      const w = userExists.loginWindow || {};
+      const start = Number(w.startMinute ?? 14 * 60);
+      const end = Number(w.endMinute ?? 18 * 60);
+
+      return res.status(403).send({
+        success: false,
+        code: "LOGIN_TIME_RESTRICTED",
+        message: `Chỉ được đăng nhập trong khung giờ ${fmtMinute(start)} - ${fmtMinute(end)} mỗi ngày.`,
+      });
+    }
+
+    // ✅ Đã active + đúng giờ → cấp token
     const payload = {
-      message: 'payload',
+      message: "payload",
       sub: username,
       iat: Date.now(),
       name: userExists.name,
@@ -243,20 +333,14 @@ console.log('Updating user with ID:', id, 'with data:', updateData);
 
     const secret = jwtSettings.SECRET;
 
-    // ACCESS TOKEN
     const accessToken = jwt.sign(payload, secret, {
-      expiresIn: 24 * 60 * 60, // 24h
+      expiresIn: 24 * 60 * 60,
       audience: jwtSettings.AUDIENCE,
       issuer: jwtSettings.ISSUER,
-      algorithm: 'HS512',
+      algorithm: "HS512",
     });
 
-    // REFRESH TOKEN
-    const refreshToken = jwt.sign(
-      { username },
-      secret,
-      { expiresIn: '365d' }
-    );
+    const refreshToken = jwt.sign({ username }, secret, { expiresIn: "365d" });
 
     const user = userExists;
 
@@ -269,33 +353,35 @@ console.log('Updating user with ID:', id, 'with data:', updateData);
         email: user.email,
         role: user.rule,
         fullname: user.name,
-        id_SECRET: user.id_SECRET
-      }
+        id_SECRET: user.id_SECRET,
+        loginWindow: user.loginWindow, // ✅ (optional)
+      },
     });
-
   } catch (error) {
-    console.error('[LOGIN ERROR]', error);
-    res.status(500).send({ message: 'Login failed -> error!' });
+    console.error("[LOGIN ERROR]", error);
+    res.status(500).send({ message: "Login failed -> error!" });
   }
 });
 
-
-
-  router.get('/login', passport.authenticate('jwt', { session: false }), function (req, res, next) {
+router.get(
+  "/login",
+  passport.authenticate("jwt", { session: false }),
+  function (req, res, next) {
     console.log(req.rawHeaders[1]);
     const str = req.rawHeaders[1];
     const token = str.split(" ")[1];
     const secretKey = jwtSettings.SECRET;
-try {
-  // Giải mã token
-  const decoded = jwt.verify(token, secretKey, { algorithms: ['HS512'] });
-  res.json(decoded);
-} catch (error) {
-  res.json('Error decoding JWT:', error.message);
-}
-  });
+    try {
+      // Giải mã token
+      const decoded = jwt.verify(token, secretKey, { algorithms: ["HS512"] });
+      res.json(decoded);
+    } catch (error) {
+      res.json("Error decoding JWT:", error.message);
+    }
+  }
+);
 
-router.get('/get-name-by-secret/:id_SECRET',authRequired, async function (req, res) {
+router.get("/get-name-by-secret/:id_SECRET", authRequired, async function (req, res) {
   try {
     const { id_SECRET } = req.params;
 
@@ -304,7 +390,7 @@ router.get('/get-name-by-secret/:id_SECRET',authRequired, async function (req, r
     if (!user) {
       return res.status(404).json({
         ok: false,
-        message: "Không tìm thấy user với id_SECRET này"
+        message: "Không tìm thấy user với id_SECRET này",
       });
     }
 
@@ -313,16 +399,43 @@ router.get('/get-name-by-secret/:id_SECRET',authRequired, async function (req, r
       name: user.name,
       username: user.username,
       email: user.email,
-      role: user.rule
+      role: user.rule,
     });
-
   } catch (err) {
     console.error("Lỗi /get-name-by-secret:", err);
     return res.status(500).json({
       ok: false,
-      message: "Lỗi server"
+      message: "Lỗi server",
     });
   }
 });
+
+function fmtMinute(m) {
+  const hh = String(Math.floor(m / 60)).padStart(2, "0");
+  const mm = String(m % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function isWithinLoginWindow(user, now = new Date()) {
+  const w = user.loginWindow || {};
+  if (w.enabled === false) return true;
+
+  const minuteNow = now.getHours() * 60 + now.getMinutes();
+
+  const start = Number(w.startMinute ?? 0);
+  const end = Number(w.endMinute ?? 1439);
+
+  if (!w.allowOvernight && start < end) {
+    return minuteNow >= start && minuteNow <= end;
+  }
+
+  if (w.allowOvernight && start > end) {
+    return minuteNow >= start || minuteNow <= end;
+  }
+
+  if (start === end) return true;
+
+  return minuteNow >= start && minuteNow <= end;
+}
 
 module.exports = router;
