@@ -17,6 +17,7 @@ async function updateBrokerMetaFromRaw(rawData) {
     version: String(rawData.version ?? ""),
     totalsymbol: String(rawData.totalsymbol ?? ""),
     timecurent: String(rawData.timecurent ?? ""),
+    timecurent_mkwt: String(rawData.timecurent_mkwt ?? ""),
     status: String(rawData.status ?? ""),
     timeUpdated: String(rawData.timeUpdated ?? ""),
     port: String(rawData.port ?? ""),

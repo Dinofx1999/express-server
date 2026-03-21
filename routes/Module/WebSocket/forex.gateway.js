@@ -416,7 +416,6 @@ function setupWebSocketServer(port) {
                                 if (Number.isFinite(curTud)) sess.lastTud = curTud;
 
                                 PriceFlush.updatePriceBufferFromMT4(rawData);
-
                                 updateBrokerMetaFromRaw(rawData).catch(err =>
                                 console.error("Error updating broker meta:", err.message)
                                 );

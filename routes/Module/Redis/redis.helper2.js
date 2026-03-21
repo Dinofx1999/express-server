@@ -294,8 +294,11 @@ async function upsertSnapshotsAtomic(dataMap, options = {}) {
 
     // ✅ bestz maintenance
     const idx = toNumberOrNull(snapObj.indexBroker ?? snapObj.index);
-    if (idx !== null && isTradeTrue(snapObj.trade)) pipeB.zadd(bestzKey(it.symbol), idx, it.broker);
-    else pipeB.zrem(bestzKey(it.symbol), it.broker);
+    const statusOk = String(snapObj.status ?? "").trim() === "True"; 
+    if (idx !== null && isTradeTrue(snapObj.trade) && statusOk)       // ✅
+      pipeB.zadd(bestzKey(it.symbol), idx, it.broker);
+    else 
+      pipeB.zrem(bestzKey(it.symbol), it.broker);
 
     // ✅ meta
     if (setMeta) {
@@ -725,11 +728,11 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
       // if(sym === "GBPUSD"){
         // console.log("TIME CURRENT A:", m.timecurent_a , getTimeGMT7(), " DIFF:", diff);
       // }
-       if(diff > 3 || diff < -3){ 
+       if(diff > process.env.MAX_DELAY_BROKER || diff < -process.env.MAX_DELAY_BROKER){ 
         // console.log(`BROKER ${b} SKIPPED FOR SYMBOL ${sym} DUE TO TIME DIFF ${diff}s`);
         continue;
       };
-      if (Number(h.timedelay) < -1800) continue;
+      if (Number(h.timedelay) < -process.env.SYMBOL_DELAY) continue;
       if (String(h.trade || "").toUpperCase() !== "TRUE") continue;
       if (String(m.status || "") !== "True") continue;
      
@@ -760,8 +763,29 @@ async function getBestBrokerBySymbol(symbol) {
   const redis = getRedis();
   const sym = normalizeSymbol(symbol);
   if (!sym) return null;
-  const arr = await redis.zrange(bestzKey(sym), 0, 0);
-  return arr && arr[0] ? arr[0] : null;
+
+  // Lấy tối đa 20 broker có index nhỏ nhất từ ZSET
+  const arr = await redis.zrange(bestzKey(sym), 0, 19);
+  if (!arr || arr.length === 0) return null;
+
+  // Nếu chỉ có 1 thì trả luôn (fast path)
+  if (arr.length === 1) return arr[0];
+
+  // Kiểm tra status của từng broker song song
+  const pipe = redis.pipeline();
+  for (const b of arr) {
+    pipe.hget(`broker_meta:${b}`, "status");
+  }
+  const res = await pipe.exec();
+
+  for (let i = 0; i < arr.length; i++) {
+    const [err, status] = res[i] || [];
+    if (!err && String(status ?? "").trim() === "True") {
+      return arr[i]; // ✅ broker hợp lệ đầu tiên (index nhỏ nhất)
+    }
+  }
+
+  return null; // không có broker nào status=True
 }
 
 // Dùng trong redis.helper2.js hoặc file query import getRedis(), brokerMetaKey(), snapKey()

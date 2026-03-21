@@ -3,11 +3,12 @@
 const WebSocket = require('ws');
 const http = require('http');
 require('dotenv').config();
-const { getTimeGMT7 } = require('../Helpers/time');
+const { getTimeGMT7 ,diffSeconds } = require('../Helpers/time');
 const { log, colors } = require('../Helpers/Log');
 const { normSym } = require('../Helpers/text.format');
 
 const RedisH2 = require('../Redis/redis.helper2');
+const { time } = require('console');
 
 // -------- cache ----------
 const brokersCache = { t: 0, v: [] };
@@ -77,6 +78,7 @@ function parseSnapshotHash(h, broker_) {
     broker_sync: h.broker_sync ?? '',
     last_reset: h.last_reset ?? '',
     timecurrent: h.timecurrent ?? '',
+    timecurent: h.timecurent ?? '',
     typeaccount: h.typeaccount ?? '',
     auto_trade: h.auto_trade ?? '',
     timetrade: JSON.parse(h.timetrade ?? '[]'),
@@ -126,7 +128,7 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
   // 2) lấy meta all brokers (status + auto_trade) - vẫn "nhẹ"
   const pipe2 = redis.pipeline();
   for (const b of brokers) {
-    pipe2.hmget(brokerMetaKey(b), "status", "auto_trade");
+    pipe2.hmget(brokerMetaKey(b), "status", "auto_trade","timecurent","typeaccount");
   }
   const res2 = await pipe2.exec();
 
@@ -141,7 +143,7 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
     if (!snap) continue;
 
     // ✅ lọc timedelay
-    if (Number(snap.timedelay) < -1800) continue;
+    if (Number(snap.timedelay) < -process.env.SYMBOL_DELAY) continue;
 
     // ✅ lọc trade flag (giữ nguyên của bạn)
     if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
@@ -153,13 +155,17 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
     const [e2, metaArr] = res2[i] || [];
     const status = !e2 && metaArr ? metaArr[0] : "";
     const auto_trade = !e2 && metaArr ? metaArr[1] : "";
-
+    const timecurent  = !e2 && metaArr ? metaArr[2] : ""; // ✅ thêm
+    const typeaccount = !e2 && metaArr ? metaArr[3] : ""; // ✅ thêm
+    if(diffSeconds(timecurent, getTimeGMT7()) > process.env.MAX_DELAY_BROKER) continue; // ✅ nếu timecurent cách hiện tại > 10s thì skip
     if (String(status || "").toUpperCase() !== "TRUE") continue;
 
     // ✅ field đúng UI
     snap.Status = status ?? "";
     snap.auto_trade = auto_trade ?? "";
-
+    snap.timecurent = timecurent ?? "";
+    snap.typeaccount = typeaccount ?? "";
+    // console.log(`[WS_WEB_SYMBOL] include snap: ${sym} | broker: ${broker_} | timedelay: ${snap.timedelay} | timetrade: ${JSON.stringify(snap.timetrade)} | status: ${status} | auto_trade: ${auto_trade}`);
     out.push(snap);
   }
 

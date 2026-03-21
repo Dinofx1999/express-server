@@ -6,7 +6,7 @@ const {getSymbolInfo , getForexSession ,Digit , Digit_Rec} = require('../Jobs/Fu
 const Redis = require('../Redis/clientRedis');
 const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.helper');
 
- async function Analysis(data, symbol ,symbolConfig_data ,Delay_Stop, spread_plus) {
+ async function AutoReset(data, symbol ,symbolConfig_data ,Delay_Stop, spread_plus) {
     try {
 
     let total_length = data.length;
@@ -47,73 +47,38 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         let SPREAD_PLUS_POINT = parseFloat(SPREAD_PLUS * Point);
         let ASK_CR = parseFloat(CURRENT.ask_mdf);
         let BID_CR = parseFloat(CURRENT.bid_mdf);
+        
         //Type
         let Type = 'Delay Price';
         if(Number(data[i].timedelay)<0)
             Type = 'Delay Price Stop';
 
-        if(Symbol === "USDJPY") console.log(CHECK.broker);
-
     //   if(symbol === "NZDUSD" && CURRENT.broker ==="valutrade-mt5") console.log("SPREAD MIN: " , SPREAD_MIN_CURRENT ,
     //     " , Spread x: ", SPREAD_X_SESSION ,
     //     " , Spread X Cr: ", spread_plus , " , Spread S: ", Spread_Sync , Point_Spread , Price_BUY_CURRENT , " < " , Price_BUY_CHECK );
-        if(parseFloat(ASK_CR) < parseFloat(BID_CHECK - SPREAD_PLUS_POINT)){
-            const KhoangCach = parseFloat((parseFloat(BID_CHECK - SPREAD_PLUS_POINT) - parseFloat(ASK_CR)))*parseFloat(Digit_Rec(parseInt(CHECK.digit))) ;
-            // if(symbol === "NZDUSD") console.log(CURRENT.broker,"SPREAD MIN: " , SPREAD_MIN_CURRENT);
-            const timeStart = getTimeGMT7();
-            const Payload = {
-                    Broker: CURRENT.broker,
-                    TimeStart: timeStart,
-                    TimeCurrent: timeStart,
-                    Symbol: symbol,
-                    Count: 0,
-                    Messenger: "BUY",
-                    Broker_Main: CHECK.broker,
-                    KhoangCach: parseInt(KhoangCach),
-                    Symbol_Raw: CURRENT.symbol_raw,
-                    Spread_main: CURRENT.spread,
-                    Spread_Sync: SPREAD_PLUS,
-                    IsStable: false,
-                    Type,
-                    Delay: CURRENT.timedelay,
-            };
-        //    if(symbol === "NZDUSD") console.log(`=> Phát hiện Chậm Giá BUY: ${symbol} | Khoảng Cách: ${Payload.KhoangCach} | Time: ${timeStart}`,parseFloat(ASK_CR), "<", parseFloat(BID_CHECK - SPREAD_PLUS_POINT) ,KhoangCach);
-            await Insert_UpdateAnalysisConfig(symbol,Payload);
-        }
-
-        // Check SELL
+        const END_POINT_BUY_CHECK = parseFloat(BID_CHECK - SPREAD_PLUS_POINT);
+        const END_POINT_SELL_CHECK = parseFloat(ASK_CHECK + SPREAD_PLUS_POINT);
         
-        // let Price_SELL_CURRENT = parseFloat(CURRENT.bid_mdf) - parseFloat(Point_Spread);
-        // let Price_SELL_CHECK = parseFloat(CHECK.bid_mdf);
+        const percent_BUY = calcPercent(ASK_CR, BID_CHECK, END_POINT_BUY_CHECK);
+        const percent_SELL = calcPercent(BID_CR, ASK_CHECK, END_POINT_SELL_CHECK);
 
-            
+       if(percent_SELL > 90 && percent_SELL< 50) console.log("Sym: " , symbol, "Broker: ", CURRENT.broker, " A: ",BID_CR , ", B: ", ASK_CHECK ,", C: ",END_POINT_SELL_CHECK , " => Percent: ", percent_SELL, "%");
+        if(percent_BUY > 90 && percent_BUY < 50) console.log("Sym: " , symbol, "Broker: ", CURRENT.broker, " A: ",ASK_CR , ", B: ", BID_CHECK ,", C: ",END_POINT_BUY_CHECK , " => Percent: ", percent_BUY, "%");
 
-        if(parseFloat(BID_CR) > parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)){
-            const timeStart = getTimeGMT7();
-            const KhoangCach = parseFloat((parseFloat(BID_CR) - parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)))*parseFloat(Digit_Rec(parseInt(CHECK.digit))) ;
-            const Payload = {
-                    Broker: CURRENT.broker,
-                    TimeStart: timeStart,
-                    TimeCurrent: timeStart,
-                    Symbol: symbol,
-                    Count: 0,
-                    Messenger: "SELL",
-                    Broker_Main: CHECK.broker,
-                    KhoangCach:parseInt(KhoangCach) ,
-                    Symbol_Raw: CURRENT.symbol_raw,
-                    Spread_main: CURRENT.spread,
-                    Spread_Sync: SPREAD_PLUS,
-                    IsStable: false,
-                    Type,
-                    Delay: CURRENT.timedelay,
-            };
-            // console.log(`=> Phát hiện Chậm Giá BUY: ${symbol} | Khoảng Cách: ${Payload.KhoangCach} | Time: ${timeStart}`);
-            await Insert_UpdateAnalysisConfig(symbol,Payload);
-        }
     }
     } catch (error) {
-        console.error(`Lỗi Phân Tích Chậm Giá ${symbol}:`, error);
+        console.error(`Lỗi Phân Tích Gia de reset${symbol}:`, error);
     }
 }
 
-module.exports = {Analysis };
+function calcPercent(A, B, C) {
+  const BC = Math.abs(B - C); // khoảng cách B->C = 100%
+  if (BC === 0) return null;  // tránh chia 0
+
+  const AC = Math.abs(A - C); // khoảng cách A->C
+  const percent = (AC / BC) * 100;
+
+  return Math.round(percent * 100) / 100; // làm tròn 2 chữ số
+}
+
+module.exports = {AutoReset };

@@ -28,6 +28,16 @@ function parseQuery(url = '') {
   return out;
 }
 
+function splitBroker(input) {
+  if (!input) return ["", ""];
+
+  const parts = input.split("45678");
+  return [
+    parts[0] || "",
+    parts[1] || ""
+  ];
+}
+
 function getSymbolFromPath(url = '') {
   const path = url.split('?')[0] || '';
   const sym = path.replace('/', '').trim();
@@ -162,7 +172,9 @@ function setupWebSocketServer(port) {
     const query = parseQuery(req.url);
 
     const brokerRaw = String(query.broker || '').trim(); // user send B / AB / ...
-    const broker_ = formatString ? formatString(brokerRaw) : brokerRaw.toLowerCase(); // => b / ab
+    const brokerMain = formatString ? formatString(brokerRaw) : brokerRaw.toLowerCase(); 
+    
+    const [broker_,broker_c2] = splitBroker(brokerMain); // => broker_ = b, broker_c2 = ab (nếu có)
 
     if (!symbol || !broker_) {
       ws.send(JSON.stringify({ type: 'ERROR', message: 'Use: ws://IP:PORT/BTCUSD?broker=B' }));
@@ -170,7 +182,7 @@ function setupWebSocketServer(port) {
       return;
     }
 
-    log(colors.green, 'WS CHART', colors.reset, `OPEN ${symbol} broker=${broker_}`);
+    log(colors.green, 'WS CHART', colors.reset, `OPEN ${symbol} broker=${broker_} / broker_c2=${broker_c2}`);
 
     let inFlight = false;
     let lastSent = '';
@@ -198,16 +210,9 @@ function setupWebSocketServer(port) {
         });
 
         // ========= Chart 2 (best broker min-index trade TRUE) =========
-        const bestBroker_ = await getBestBrokerFast(symbol);
-         const bestBroker___ = await RedisH2.getBestBrokerDataBySymbol(symbol, {
-            requireTradeTrue: true,
-            minTimedelay: -1800,
-          });
-
-        const Broker = bestBroker___.broker_ || null;
         let c2, c3;
 
-        if (!bestBroker___) {
+        if (!broker_c2) {
           c2 = buildChart({
             chartId: 'c2',
             title: `${symbol} | MIN-INDEX | Bid&Ask`,
@@ -230,16 +235,16 @@ function setupWebSocketServer(port) {
         } else {
           // load best broker data
           const [ohlc2, snap2] = await Promise.all([
-            getOHLC_cached(Broker, symbol, 300),
-            getPriceSnap(Broker, symbol),
+            getOHLC_cached(broker_c2, symbol, 300),
+            getPriceSnap(broker_c2, symbol),
           ]);
 
           // Nếu bestz có nhưng snap2 chưa có => fallback hiển thị NO_SNAP
           c2 = buildChart({
             chartId: 'c2',
-            title: `${symbol} | ${Broker} | Bid&Ask`,
-            broker_: Broker,
-            brokerDisplay: Broker,
+            title: `${symbol} | ${broker_c2} | Bid&Ask`,
+            broker_: broker_c2,
+            brokerDisplay: broker_c2,
             ohlc: ohlc2,
             snap: snap2,
             note: snap2 ? undefined : 'NO_PRICE_SNAP_BEST',
@@ -262,78 +267,14 @@ function setupWebSocketServer(port) {
 
           c3 = buildChart({
             chartId: 'c3',
-            title: `${symbol} | ${bestBroker_} | bid_mdf&ask_mdf`,
-            broker_: bestBroker_,
-            brokerDisplay: bestBroker_,
+            title: `${symbol} | ${broker_c2} | bid_mdf&ask_mdf`,
+            broker_: broker_c2,
+            brokerDisplay: broker_c2,
             ohlc: ohlc2,
             snap: snap3,
             note: snap3 ? undefined : 'NO_PRICE_SNAP_BEST',
           });
         }
-
-        // if (!bestBroker_) {
-        //   c2 = buildChart({
-        //     chartId: 'c2',
-        //     title: `${symbol} | MIN-INDEX | Bid&Ask`,
-        //     broker_: '',
-        //     brokerDisplay: 'MIN-INDEX',
-        //     ohlc: [],
-        //     snap: null,
-        //     note: 'NO_MIN_TRADE_TRUE',
-        //   });
-
-        //   c3 = buildChart({
-        //     chartId: 'c3',
-        //     title: `${symbol} | MIN-INDEX | bid_mdf&ask_mdf`,
-        //     broker_: '',
-        //     brokerDisplay: 'MIN-INDEX',
-        //     ohlc: [],
-        //     snap: null,
-        //     note: 'NO_MIN_TRADE_TRUE',
-        //   });
-        // } else {
-        //   // load best broker data
-        //   const [ohlc2, snap2] = await Promise.all([
-        //     getOHLC_cached(bestBroker_, symbol, 300),
-        //     getPriceSnap(bestBroker_, symbol),
-        //   ]);
-
-        //   // Nếu bestz có nhưng snap2 chưa có => fallback hiển thị NO_SNAP
-        //   c2 = buildChart({
-        //     chartId: 'c2',
-        //     title: `${symbol} | ${bestBroker_} | Bid&Ask`,
-        //     broker_: bestBroker_,
-        //     brokerDisplay: bestBroker_,
-        //     ohlc: ohlc2,
-        //     snap: snap2,
-        //     note: snap2 ? undefined : 'NO_PRICE_SNAP_BEST',
-        //   });
-
-        //   // ========= Chart 3: OHLC of c2, price = mdf, digit = digit of c2 =========
-        //   const s2 = snap2 || {};
-
-        //   const snap3 = snap2
-        //     ? {
-        //         ...s2,
-        //         // giá mdf
-        //         bid: s2.bid_mdf ?? s2.bid,
-        //         ask: s2.ask_mdf ?? s2.ask,
-        //         spread: s2.spread_mdf ?? s2.spread,
-        //         // digit vẫn là digit của chart2
-        //         digit: s2.digit ?? '',
-        //       }
-        //     : null;
-
-        //   c3 = buildChart({
-        //     chartId: 'c3',
-        //     title: `${symbol} | ${bestBroker_} | bid_mdf&ask_mdf`,
-        //     broker_: bestBroker_,
-        //     brokerDisplay: bestBroker_,
-        //     ohlc: ohlc2,
-        //     snap: snap3,
-        //     note: snap3 ? undefined : 'NO_PRICE_SNAP_BEST',
-        //   });
-        // }
 
         // ========= Final =========
         const payload = {

@@ -23,6 +23,7 @@ require('dotenv').config({ quiet: true });
 //JOBs
 const JOB_Analysis = require('../Jobs/AnalysisMain');
 const JOB_Cron_DatAnalyses_MongoDB = require('../Jobs/Cron.Mongo.Analyses');
+const JOB_CronAutoReset = require('../Jobs/CronAutoReset');
 const JOB_ScanTimeOpen = require('../Jobs/ScanTimeOpen');
 
 // ===== MONITOR EVENT LOOP DELAY =====
@@ -123,6 +124,7 @@ async function MainStream() {
             cluster.fork({ WORKER_TYPE: 'JOBS', PORT: process.env.WS_PORT_ANALYSIS_JOB || 4000 });
             cluster.fork({ WORKER_TYPE: 'JOBS_CRON_MONGO', PORT: process.env.WS_PORT_CRON_MONGO || 4001 });
             cluster.fork({ WORKER_TYPE: 'JOBS_CRON_ScanTimeOpen', PORT: process.env.WS_PORT_CRON_SCAN_TIME_OPEN || 4002 });
+            cluster.fork({ WORKER_TYPE: 'JOBS_CRON_AUTO_RESET', PORT: process.env.WS_PORT_CRON_AUTO_RESET || 4003 });
             
 
             cluster.on('exit', (worker, code, signal) => {
@@ -199,6 +201,14 @@ async function MainStream() {
                         await JOB_ScanTimeOpen();
                     } catch (err) {
                         console.error('JOB_ScanTimeOpen Error:', err);
+                    }
+                    break;
+                case 'JOBS_CRON_AUTO_RESET':
+                    log(colors.green, 'WORKER', colors.reset, `Starting JOB CRON AUTO RESET PID: ${process.pid}`);
+                    try {
+                        await JOB_CronAutoReset();
+                    } catch (err) {
+                        console.error('JOB_CronAutoReset Error:', err);
                     }
                     break;
                 default:
