@@ -2,9 +2,19 @@
 const {formatString, normSym} = require('../Helpers/text.format');
 const {getTimeGMT7 ,getMinuteSecond } = require('../Helpers/time');
 const {getSymbolInfo , getForexSession ,Digit , Digit_Rec} = require('../Jobs/Func.helper');
+const SymbolDebounceQueue = require("../Redis/DebounceQueue");
 // const {Analysis} = require('../Jobs/Analysis');
 const Redis = require('../Redis/clientRedis');
 const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.helper');
+
+const queue = new SymbolDebounceQueue({
+  debounceTime: 3000, // 5s không có payload mới
+  maxWaitTime: 5000,  // Tối đa 10s
+  maxPayloads: 5000,  // Tối đa 5000 unique payloads
+  delayBetweenTasks: 300, // 500ms delay giữa các task
+  cooldownTime: 5000, // 10s cooldown after processing
+});
+
 
  async function AutoReset(data, symbol ,symbolConfig_data ,Delay_Stop, spread_plus) {
     try {
@@ -61,14 +71,110 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         
         const percent_BUY = calcPercent(ASK_CR, BID_CHECK, END_POINT_BUY_CHECK);
         const percent_SELL = calcPercent(BID_CR, ASK_CHECK, END_POINT_SELL_CHECK);
-
-       if(percent_SELL > 90 && percent_SELL< 50) console.log("Sym: " , symbol, "Broker: ", CURRENT.broker, " A: ",BID_CR , ", B: ", ASK_CHECK ,", C: ",END_POINT_SELL_CHECK , " => Percent: ", percent_SELL, "%");
-        if(percent_BUY > 90 && percent_BUY < 50) console.log("Sym: " , symbol, "Broker: ", CURRENT.broker, " A: ",ASK_CR , ", B: ", BID_CHECK ,", C: ",END_POINT_BUY_CHECK , " => Percent: ", percent_BUY, "%");
-
+        // if(CURRENT.broker ==="FXPRO MT5" && symbol === "BTCUSD")console.log(`A = ${ASK_CR} B = ${ASK_CHECK} C = ${END_POINT_SELL_CHECK} => Percent: ${percent_BUY}%`);
+       // ---- SELL ----
+        if (percent_SELL > Number(process.env.PERCENT_A)  && percent_SELL < Number(process.env.PERCENT_B)) {
+        // console.log(`SELL Alert Condition Met for ${symbol} at broker ${CURRENT.broker}: Percent: ${percent_SELL}%`);
+        await checkAndAlert(symbol,CURRENT.port, CURRENT.broker, percent_SELL, 'SELL',BID_CR, ASK_CHECK, END_POINT_SELL_CHECK);
+        } else {
+        // Thoát điều kiện → reset đếm
+        clearAlert(symbol, CURRENT.broker, 'SELL');
+        }
+        
+        // ---- BUY ----
+        if (percent_BUY > Number(process.env.PERCENT_A) && percent_BUY < Number(process.env.PERCENT_B)) {
+            // console.log(`BUY Alert Condition Met for ${symbol} at broker ${CURRENT.broker}: Percent: ${percent_BUY}%`);
+         await checkAndAlert(symbol, CURRENT.port,  CURRENT.broker, percent_BUY, 'BUY',ASK_CR, BID_CHECK, END_POINT_BUY_CHECK);
+        } else {
+        clearAlert(symbol, CURRENT.broker, 'BUY');
+        }
     }
     } catch (error) {
         console.error(`Lỗi Phân Tích Gia de reset${symbol}:`, error);
     }
+}
+
+
+// Track trạng thái từng symbol+broker
+const alertTracker = new Map();
+
+async function checkAndAlert(symbol, Port, broker, percent, type, A, B, C) {
+  const key = `${symbol}|${broker}|${type}`;
+  const now = Date.now();
+  const REQUIRED_MS = process.env.ALERT_HOLD_TIME_MS || 3000; // Thời gian giữ cảnh báo (mặc định 3s)
+
+  const tracker = alertTracker.get(key);
+
+  if (!tracker) {
+    // Lần đầu thoả → bắt đầu đếm
+    alertTracker.set(key, { startTime: now, alerted: false });
+    return;
+  }
+
+  // Đã alert rồi → bỏ qua, chờ clearAlert khi hụt điều kiện
+  if (tracker.alerted) return;
+
+  // Chưa đủ 3s → tiếp tục chờ
+  if ((now - tracker.startTime) < REQUIRED_MS) return;
+
+  // ✅ Đủ 3s → đánh dấu alerted + thông báo
+  alertTracker.set(key, { ...tracker, alerted: true });
+
+  console.log(
+    `🚨 ALERT [${type}] Sym: ${symbol} | Broker: ${broker}` +
+    ` | A: ${A}, B: ${B}, C: ${C} | Percent: ${percent}%` +
+    ` | Liên tục: ${((now - tracker.startTime) / 1000).toFixed(1)}s`
+  );
+
+  // ✅ Publish Redis
+  try {
+    const groupKey = "RESET";
+    const payload = { symbol, broker };
+
+    queue.receive(groupKey, payload, async (symb, meta) => {
+      console.log(`🚀 Processing: ${symb}`);
+      await Redis.publish(String(Port), JSON.stringify({
+        Symbol: symb,
+        Broker: formatString(broker),
+      }));
+    });
+  } catch (e) {
+    console.error('[checkAndAlert] publish error:', e?.message || e);
+  }
+
+alertTracker.delete(key);
+}
+// function checkAndAlert(symbol, Port, broker, percent, type, A, B, C) {
+//   const key = `${symbol}|${broker}|${type}`;
+//   const now = Date.now();
+//   const REQUIRED_MS = 3000;
+
+//   const tracker = alertTracker.get(key);
+
+//   console.log(`[CHECK] key=${key} | tracker=${JSON.stringify(tracker)} | elapsed=${tracker ? now - tracker.startTime : 0}ms`);
+
+//   if (!tracker) {
+//     alertTracker.set(key, { startTime: now, alerted: false });
+//     console.log(`[START] Bắt đầu đếm cho ${key}`);
+//     return;
+//   }
+
+//   if (tracker.alerted) {
+//     console.log(`[SKIP] Đã alert rồi, chờ clearAlert`);
+//     return;
+//   }
+
+//   if ((now - tracker.startTime) < REQUIRED_MS) {
+//     console.log(`[WAIT] Chưa đủ 3s: ${((now - tracker.startTime)/1000).toFixed(1)}s`);
+//     return;
+//   }
+
+//   // ✅ Đủ 3s
+//   alertTracker.set(key, { ...tracker, alerted: true });
+//   console.log(`🚨 ALERT [${type}] Sym: ${symbol} | Broker: ${broker} | Percent: ${percent}%`);
+// }
+function clearAlert(symbol, broker, type) {
+  alertTracker.delete(`${symbol}|${broker}|${type}`);
 }
 
 function calcPercent(A, B, C) {

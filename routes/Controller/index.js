@@ -114,6 +114,7 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
       'code' : 0
     });
   }else if(broker.toUpperCase() === 'ALL'){
+    console.log("Initiating reset for ALL brokers for symbol:", symbol);
     await Redis.publish("RESET_ALL", JSON.stringify({
     Symbol: symbol,
     Broker: "ALL-BROKERS",

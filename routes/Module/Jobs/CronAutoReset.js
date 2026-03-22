@@ -63,7 +63,7 @@ async function refreshConfig() {
 
 // Loop chính để phân tích
 function runAnalysisLoop() {
-  const interval = Number(process.env.CRON_INTERVAL_ANALYZE || 500);
+  const interval = Number(process.env.CRON_INTERVAL_SCAN || 1000);
   const TIMEOUT_WARN = 1000;
 
   async function tick() {

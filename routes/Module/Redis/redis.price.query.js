@@ -1,7 +1,7 @@
 "use strict";
 
 const Redis = require("ioredis");
-
+const { getTimeGMT7 ,diffSeconds } = require('../Helpers/time');
 const redis = new Redis({
   host: "127.0.0.1",
   port: 6379,
@@ -192,6 +192,8 @@ function parseSnapshot(hash) {
   }
   return out;
 }
+
+
 async function getAllUniqueSymbols() {
   // 1) Lấy danh sách broker_
   const brokers = await redis.smembers("brokers");
@@ -341,55 +343,98 @@ async function getBestSymbolByIndex(symbol, opts = {}) {
   return best;
 }
 
+function safeParseTimetrade(tt) {
+  // tt có thể: array | string json | null
+  if (Array.isArray(tt)) return tt;
+  if (typeof tt === "string") {
+    const s = tt.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+
+function isTruthyStatus(v) {
+  if (v === true) return true;
+  if (v === 1) return true;
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
+
+function hasActiveTradeWindow(timetrade) {
+  const arr = safeParseTimetrade(timetrade);
+  if (!arr.length) return false;
+  // ✅ chỉ cần có 1 item status=true là hợp lệ
+  return arr.some(it => isTruthyStatus(it?.status));
+}
+
+
 async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
   const sym = String(symbol || "").toUpperCase().trim();
   if (!sym) return null;
 
-  const { staleMs = 0 } = opts; // nếu muốn lọc dữ liệu cũ: vd 2000
+  const { staleMs = 0 } = opts;
 
   const brokers = await redis.smembers("brokers");
   if (!brokers.length) return null;
 
   const pipe = redis.pipeline();
-
-  // 1) lấy snap + meta.index (fallback)
   for (const b of brokers) {
-    pipe.hgetall(`snap:${b}:${sym}`);
-    pipe.hmget(`broker_meta:${b}`, "status", "index"); 
+    pipe.hgetall(`snap:${b}:${sym}`);                              // res[i * 2]
+    pipe.hmget(`broker_meta:${b}`, "status", "index", "timecurent"); // res[i * 2 + 1]
   }
-
   const res = await pipe.exec();
-  // console.log("RES LENGTH: ", res);
+
   let best = null;
   const now = Date.now();
+  const maxDelay = Number(process.env.MAX_DELAY_BROKER) || 3;
 
   for (let i = 0; i < brokers.length; i++) {
     const broker_ = brokers[i];
 
-    const snap = res[i * 2]?.[1];
-    const metaIndex = res[i * 2 + 1]?.[1];
-    if (!snap || !snap.bid || !snap.ask) continue;
-    if(snap.timedelay && Number(snap.timedelay) < -1800)  continue; // bỏ timedelay > 30p
+    // ✅ đúng offset
+    const [e1, snap]    = res[i * 2]     || [];
+    const [e2, metaArr] = res[i * 2 + 1] || [];
 
-    // ✅ index ưu tiên từ snap (chuẩn nhất), fallback meta
-    const idxRaw = snap.indexBroker ?? snap.index ?? metaIndex;
-    const idx = Number(idxRaw);
-    const indexNum = Number.isFinite(idx) ? idx : Infinity;
+    if (e1 || e2) continue;
+    if (!snap || Object.keys(snap).length === 0) continue;
+    if (!snap.bid || !snap.ask) continue;
 
-    // (optional) bỏ snap quá cũ
+    // ✅ parse meta
+    const status     = metaArr?.[0] ?? "";
+    const timecurent = metaArr?.[2] ?? "";
+
+    // ✅ check timecurent hợp lệ
+    if (!timecurent) continue;
+    if (Math.abs(diffSeconds(timecurent, getTimeGMT7())) > maxDelay) continue;
+
+    // ✅ các filter còn lại
+    if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
+    if (snap.timedelay && Number(snap.timedelay) < -1800) continue;
+    if (!hasActiveTradeWindow(snap.timetrade)) continue;
+    if (String(status || "").trim() !== "True") continue;
+
+    // ✅ stale check
     const recv = Number(snap.receivedAt || 0);
     if (staleMs > 0 && recv > 0 && (now - recv) > staleMs) continue;
 
-    const candidate = {
-      broker_,
-      index: indexNum,
-      ...snap,
-    };
+    // ✅ index ưu tiên snap, fallback meta
+    const idxRaw = snap.indexBroker ?? snap.index ?? metaArr?.[1];
+    const idx = Number(idxRaw);
+    const indexNum = Number.isFinite(idx) ? idx : Infinity;
+
+    const candidate = { broker_, index: indexNum, ...snap };
 
     if (!best || candidate.index < best.index) best = candidate;
   }
 
-  return best; // best.symbol chính là symbol của broker index nhỏ nhất
+  return best;
 }
 
 // async function getSymbolOfMinIndexBroker(symbol, opts = {}) {

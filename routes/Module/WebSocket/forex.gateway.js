@@ -344,7 +344,7 @@ function setupWebSocketServer(port) {
                                 await onBrokerStatusChange(formatString(Broker), reset_text);
                                 
                                 const Response = await getSymbolOfMinIndexBroker(Symbol);
-                                // console.log(Color_Log_Success, "SYNC_PRICE - Response:", Response,Response.index ,Index_Broker);
+                                // console.log(Response);
                                 let responseData;
                                 let logColor;
                                 if (Response && Response.index < Index_Broker) {
