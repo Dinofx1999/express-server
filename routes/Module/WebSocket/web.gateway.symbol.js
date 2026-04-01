@@ -276,32 +276,29 @@ function setupWebSocketServer(port) {
         const time = getTimeGMT7();
 
         for (const symRaw of symbols) {
-          const sym = (normSym ? normSym(symRaw) : symRaw).toUpperCase();
+  // ✅ guard null/undefined trước
+  if (!symRaw) continue;
 
-          // short cache per symbol
-          let dataArr = cacheGet(sym, 80);
-          if (!dataArr) {
-            dataArr = await getSymbolAcrossBrokersFast(sym, brokers, redis);
-            cacheSet(sym, dataArr);
-          }
+  const sym = (normSym ? normSym(String(symRaw)) : String(symRaw)).toUpperCase();
+  if (!sym) continue;
 
-          // ✅ sort output by indexBroker (asc)
-          
-          const sorted = sortByIndex(dataArr);
+  // short cache per symbol
+  let dataArr = cacheGet(sym, 80);
+  if (!dataArr) {
+    dataArr = await getSymbolAcrossBrokersFast(sym, brokers, redis);
+    cacheSet(sym, dataArr);
+  }
 
-          // ✅ UI FORMAT: {time, data:[...]}
-          const msg = JSON.stringify({ time, data: sorted });
-
-          const clients = clientsBySymbol.get(symRaw) || [];
-          for (const ws of clients) {
-            if (ws.readyState !== WebSocket.OPEN) continue;
-
-            // dedupe per client
-            if (ws.__lastMsg === msg) continue;
-            ws.__lastMsg = msg;
-            ws.send(msg);
-          }
-        }
+  const sorted = sortByIndex(dataArr);
+  const msg = JSON.stringify({ time, data: sorted });
+  const clients = clientsBySymbol.get(symRaw) || [];
+  for (const ws of clients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    if (ws.__lastMsg === msg) continue;
+    ws.__lastMsg = msg;
+    ws.send(msg);
+  }
+}
       } catch (e) {
         console.error('[WS_WEB_SYMBOL] broadcast error:', e?.message || e);
       } finally {

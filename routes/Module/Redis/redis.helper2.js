@@ -455,6 +455,7 @@ async function getAllPricesByBroker(broker) {
 
     out.push({
       symbol: symbols[i],
+      symbol_raw: data.symbol_raw ?? symbols[i],
       broker_: data.broker_ || brokerKey,
       broker: data.broker || broker,
 

@@ -3,6 +3,7 @@ const Redis = require('../Redis/clientRedis');
 const { AutoReset } = require('../Jobs/Save_AutoReset');
 const { connectMongoDB } = require('../../Database/mongodb');
 const { getAllSymbolConfigs } = require('../../Database/symbol-config.helper');
+const { isForexSymbol } = require("../Helpers/typeSymbol");
 const { colors } = require('../Helpers/Log');
 const {getMinuteSecond ,getTimeGMT7 , diffSeconds} = require('../Helpers/time');
 
@@ -89,12 +90,13 @@ function runAnalysisLoop() {
         symbols.map(async (sym) => {
           try {
             // Lookup từ Map O(1)
-            
+            if (isForexSymbol(sym)) return;  
             const symbolConfig = symbolConfigMap.get(sym) || getSymbolInfo(ConfigSymbol, sym);
             const priceData = priceDataMap.get(sym);
             if (!priceData || priceData.length <= 1) return;
+
             //Ham AutoReset
-            AutoReset(priceData, sym ,symbolConfig ,Delay_Stop, Spread_Plus);
+           await AutoReset(priceData, sym ,symbolConfig ,Delay_Stop, Spread_Plus);
             
           } catch (err) {
             console.error(`[Analysis] Error ${sym}:`, err.message);

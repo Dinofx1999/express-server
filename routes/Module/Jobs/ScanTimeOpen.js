@@ -1,9 +1,10 @@
 const Redis = require("../Redis/clientRedis");
 const { connectMongoDB } = require("../../Database/mongodb");
-const { getTimeGMT7 } = require("../Helpers/time");
+const { getTimeGMT7 , diffSeconds} = require("../Helpers/time");
 const { isForexSymbol } = require("../Helpers/typeSymbol");
 const SymbolDebounceQueue = require("../Redis/DebounceQueue");
-const { configAdmin } = require("../../../models/index");
+const { configAdmin ,symbolAlias } = require("../../../models/index");
+// var { symbolAlias } = require('../../../models/index');
 
 const {
   getBrokerResetting,
@@ -152,6 +153,9 @@ async function startJob() {
     try {
       const cfg = await configAdmin.findOne();
       await Redis.saveConfigAdmin(cfg);
+
+      // const symbol_config = await symbolAlias.find();
+      // console.log(symbol_config);
     } catch (err) {
       console.error(`[JOB ${process.pid}] GetConfig error:`, err);
     }
@@ -225,10 +229,9 @@ async function ScanTimeOpenSymbol() {
                 }
 
                 // ✅ so bằng timestamp
-                if (status === "true" && lastResetDate.getTime() < openDate.getTime()) {
+                if (status === "true" && lastResetDate.getTime() < openDate.getTime() && diffSeconds(data.timecurent_broker , getTimeGMT7()) <= 2) {
                   const groupKey = "RESET";
                   const payload = { symbol: sym, broker };
-
                   queue.receive(groupKey, payload, async (symb, meta) => {
                     console.log(`🚀 Processing: ${symb}`);
                     console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);

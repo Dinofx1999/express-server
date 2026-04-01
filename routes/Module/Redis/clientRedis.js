@@ -330,6 +330,26 @@ class RedisManager {
         await this.client.set(key, JSON.stringify(data));
     }
 
+    async saveConfigSymbol(data) {
+        const key = `SYMBOL`;
+        await this.client.set(key, JSON.stringify(data));
+    }
+
+     async getConfigSymbol() {
+        const key = `SYMBOL`;
+        const raw = await this.client.get(key);
+        if (raw) {
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                console.error('Error parsing config symbol data:', error);
+            }
+        }
+        return null;
+    }
+
+    
+
     async getConfigAdmin() {
         const key = `CONFIG`;
         const raw = await this.client.get(key);

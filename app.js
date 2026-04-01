@@ -11,6 +11,8 @@ var Login = require('./routes/Controller/auth.js');
 const symbolConfig = require('./routes/Controller/symbolConfig.js');
 const ErrorAnalysis = require('./routes/Controller/errors.js');
 const ConfigAdmin = require('./routes/Controller/configAdmin.js');
+// const SymbolAlias = require('./routes/Controller/symbolAlias.controller.js');
+const SymbolAlias = require('./routes/Controller/symbolAlias.controller.js');
 const {  API_ALL_INFO_BROKERS , 
           VERSION,
           API_PORT_BROKER_ENDPOINT, 
@@ -50,7 +52,12 @@ app.use(`/${VERSION}/symbol`, symbolConfig);
 app.use(`/${VERSION}/errors`, ErrorAnalysis);
 app.use(`/${VERSION}/admin`, ConfigAdmin);
 
-
+console.log('=== SymbolAlias DEBUG ===');
+console.log('type:', typeof SymbolAlias);
+console.log('is function:', typeof SymbolAlias === 'function');
+console.log('has stack:', !!SymbolAlias.stack);
+console.log('keys:', Object.keys(SymbolAlias));
+app.use('/api/symbol-aliases', SymbolAlias);
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
   next(createError(404));

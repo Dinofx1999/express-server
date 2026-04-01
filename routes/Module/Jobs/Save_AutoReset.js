@@ -1,6 +1,6 @@
 /* eslint-disable */
 const {formatString, normSym} = require('../Helpers/text.format');
-const {getTimeGMT7 ,getMinuteSecond } = require('../Helpers/time');
+const {getTimeGMT7 ,getMinuteSecond ,diffSeconds} = require('../Helpers/time');
 const {getSymbolInfo , getForexSession ,Digit , Digit_Rec} = require('../Jobs/Func.helper');
 const SymbolDebounceQueue = require("../Redis/DebounceQueue");
 // const {Analysis} = require('../Jobs/Analysis');
@@ -47,6 +47,7 @@ const queue = new SymbolDebounceQueue({
             if( CURRENT.typeaccount === "ECN" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_ECN) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
 
+        if(diffSeconds(CURRENT.timecurent_broker,getTimeGMT7()) >= 3) return;
         let Digit_ = parseInt(CHECK.digit);
         let Point =  parseFloat(Digit(Digit_));
         let BID_CHECK = parseFloat(CHECK.bid_mdf);
@@ -96,86 +97,86 @@ const queue = new SymbolDebounceQueue({
 
 
 // Track trạng thái từng symbol+broker
-const alertTracker = new Map();
+// const alertTracker = new Map();
 
-async function checkAndAlert(symbol, Port, broker, percent, type, A, B, C) {
-  const key = `${symbol}|${broker}|${type}`;
-  const now = Date.now();
-  const REQUIRED_MS = process.env.ALERT_HOLD_TIME_MS || 3000; // Thời gian giữ cảnh báo (mặc định 3s)
-
-  const tracker = alertTracker.get(key);
-
-  if (!tracker) {
-    // Lần đầu thoả → bắt đầu đếm
-    alertTracker.set(key, { startTime: now, alerted: false });
-    return;
-  }
-
-  // Đã alert rồi → bỏ qua, chờ clearAlert khi hụt điều kiện
-  if (tracker.alerted) return;
-
-  // Chưa đủ 3s → tiếp tục chờ
-  if ((now - tracker.startTime) < REQUIRED_MS) return;
-
-  // ✅ Đủ 3s → đánh dấu alerted + thông báo
-  alertTracker.set(key, { ...tracker, alerted: true });
-
-  console.log(
-    `🚨 ALERT [${type}] Sym: ${symbol} | Broker: ${broker}` +
-    ` | A: ${A}, B: ${B}, C: ${C} | Percent: ${percent}%` +
-    ` | Liên tục: ${((now - tracker.startTime) / 1000).toFixed(1)}s`
-  );
-
-  // ✅ Publish Redis
-  try {
-    const groupKey = "RESET";
-    const payload = { symbol, broker };
-
-    queue.receive(groupKey, payload, async (symb, meta) => {
-      console.log(`🚀 Processing: ${symb}`);
-      await Redis.publish(String(Port), JSON.stringify({
-        Symbol: symb,
-        Broker: formatString(broker),
-      }));
-    });
-  } catch (e) {
-    console.error('[checkAndAlert] publish error:', e?.message || e);
-  }
-
-alertTracker.delete(key);
-}
-// function checkAndAlert(symbol, Port, broker, percent, type, A, B, C) {
+// async function checkAndAlert(symbol, Port, broker, percent, type, A, B, C) {
 //   const key = `${symbol}|${broker}|${type}`;
 //   const now = Date.now();
-//   const REQUIRED_MS = 3000;
+//   const REQUIRED_MS = process.env.ALERT_HOLD_TIME_MS || 3000; // Thời gian giữ cảnh báo (mặc định 3s)
 
 //   const tracker = alertTracker.get(key);
 
-//   console.log(`[CHECK] key=${key} | tracker=${JSON.stringify(tracker)} | elapsed=${tracker ? now - tracker.startTime : 0}ms`);
-
 //   if (!tracker) {
+//     // Lần đầu thoả → bắt đầu đếm
 //     alertTracker.set(key, { startTime: now, alerted: false });
-//     console.log(`[START] Bắt đầu đếm cho ${key}`);
 //     return;
 //   }
 
-//   if (tracker.alerted) {
-//     console.log(`[SKIP] Đã alert rồi, chờ clearAlert`);
-//     return;
-//   }
+//   // Đã alert rồi → bỏ qua, chờ clearAlert khi hụt điều kiện
+//   if (tracker.alerted) return;
 
-//   if ((now - tracker.startTime) < REQUIRED_MS) {
-//     console.log(`[WAIT] Chưa đủ 3s: ${((now - tracker.startTime)/1000).toFixed(1)}s`);
-//     return;
-//   }
+//   // Chưa đủ 3s → tiếp tục chờ
+//   if ((now - tracker.startTime) < REQUIRED_MS) return;
 
-//   // ✅ Đủ 3s
+//   // ✅ Đủ 3s → đánh dấu alerted + thông báo
 //   alertTracker.set(key, { ...tracker, alerted: true });
-//   console.log(`🚨 ALERT [${type}] Sym: ${symbol} | Broker: ${broker} | Percent: ${percent}%`);
+
+//   console.log(
+//     `🚨 ALERT [${type}] Sym: ${symbol} | Broker: ${broker}` +
+//     ` | A: ${A}, B: ${B}, C: ${C} | Percent: ${percent}%` +
+//     ` | Liên tục: ${((now - tracker.startTime) / 1000).toFixed(1)}s`
+//   );
+
+//   // ✅ Publish Redis
+//   try {
+//     const groupKey = "RESET";
+//     const payload = { symbol, broker };
+
+//     queue.receive(groupKey, payload, async (symb, meta) => {
+//       console.log(`🚀 Processing: ${symb}`);
+//       await Redis.publish(String(Port), JSON.stringify({
+//         Symbol: symb,
+//         Broker: formatString(broker),
+//       }));
+//     });
+//   } catch (e) {
+//     console.error('[checkAndAlert] publish error:', e?.message || e);
+//   }
+
+// alertTracker.delete(key);
 // }
-function clearAlert(symbol, broker, type) {
-  alertTracker.delete(`${symbol}|${broker}|${type}`);
-}
+// // function checkAndAlert(symbol, Port, broker, percent, type, A, B, C) {
+// //   const key = `${symbol}|${broker}|${type}`;
+// //   const now = Date.now();
+// //   const REQUIRED_MS = 3000;
+
+// //   const tracker = alertTracker.get(key);
+
+// //   console.log(`[CHECK] key=${key} | tracker=${JSON.stringify(tracker)} | elapsed=${tracker ? now - tracker.startTime : 0}ms`);
+
+// //   if (!tracker) {
+// //     alertTracker.set(key, { startTime: now, alerted: false });
+// //     console.log(`[START] Bắt đầu đếm cho ${key}`);
+// //     return;
+// //   }
+
+// //   if (tracker.alerted) {
+// //     console.log(`[SKIP] Đã alert rồi, chờ clearAlert`);
+// //     return;
+// //   }
+
+// //   if ((now - tracker.startTime) < REQUIRED_MS) {
+// //     console.log(`[WAIT] Chưa đủ 3s: ${((now - tracker.startTime)/1000).toFixed(1)}s`);
+// //     return;
+// //   }
+
+// //   // ✅ Đủ 3s
+// //   alertTracker.set(key, { ...tracker, alerted: true });
+// //   console.log(`🚨 ALERT [${type}] Sym: ${symbol} | Broker: ${broker} | Percent: ${percent}%`);
+// // }
+// function clearAlert(symbol, broker, type) {
+//   alertTracker.delete(`${symbol}|${broker}|${type}`);
+// }
 
 function calcPercent(A, B, C) {
   const BC = Math.abs(B - C); // khoảng cách B->C = 100%
@@ -186,5 +187,78 @@ function calcPercent(A, B, C) {
 
   return Math.round(percent * 100) / 100; // làm tròn 2 chữ số
 }
+
+const alertTracker = new Map();
+ 
+const REQUIRED_MS = Number(process.env.ALERT_HOLD_TIME_MS) || 10 * 60 * 1000; // 10 phút
+ 
+// ===================== CHECK =====================
+// Gọi mỗi lần scan — nhưng chỉ thực sự kiểm tra tại đúng thời điểm 10 phút
+async function checkAndAlert(symbol, Port, broker, percent, type, A, B, C) {
+  const key = `${symbol}|${broker}|${type}`;
+  const now = Date.now();
+  const tracker = alertTracker.get(key);
+ 
+  if (!tracker) {
+    // ✅ Lần đầu thoả → lưu startTime, lên lịch check sau 10 phút
+    alertTracker.set(key, { startTime: now, alerted: false });
+    console.log(`⏳ START [${type}] ${symbol}|${broker} | ${percent}% | Sẽ kiểm tra lại sau ${REQUIRED_MS / 60000} phút`);
+    return;
+  }
+ 
+  // Đã fire rồi → bỏ qua
+  if (tracker.alerted) return;
+ 
+  // Chưa đến 10 phút → bỏ qua, không làm gì
+  if ((now - tracker.startTime) < REQUIRED_MS) return;
+ 
+  // ✅ Đúng 10 phút → hàm này được gọi = điều kiện VẪN THOẢ → FIRE
+  alertTracker.set(key, { ...tracker, alerted: true });
+ 
+  const elapsed = now - tracker.startTime;
+  console.log(
+    `🚨 ALERT [${type}] Sym: ${symbol} | Broker: ${broker}` +
+    ` | A: ${A}, B: ${B}, C: ${C} | Percent: ${percent}%` +
+    ` | Giữ: ${(elapsed / 60000).toFixed(1)} phút`
+  );
+ 
+  // ✅ Publish Redis
+  try {
+    const groupKey = "RESET";
+    const payload = { symbol, broker };
+ 
+    queue.receive(groupKey, payload, async (symb, meta) => {
+      console.log(`🚀 Processing: ${symb}`);
+      await Redis.publish(String(Port), JSON.stringify({
+        Symbol: symb,
+        Broker: formatString(broker),
+      }));
+    });
+  } catch (e) {
+    console.error('[checkAndAlert] publish error:', e?.message || e);
+  }
+ 
+  // ✅ Clear sau khi fire
+  alertTracker.delete(key);
+}
+ 
+// ===================== CLEAR =====================
+// Gọi khi hụt điều kiện — chỉ clear nếu đã qua 10 phút
+function clearAlert(symbol, broker, type) {
+  const key = `${symbol}|${broker}|${type}`;
+  const tracker = alertTracker.get(key);
+  if (!tracker || tracker.alerted) return;
+ 
+  const now = Date.now();
+  const elapsed = now - tracker.startTime;
+ 
+  if (elapsed >= REQUIRED_MS) {
+    // ✅ Đã qua 10 phút mà hụt → clear
+    console.log(`🗑️ CLEAR [${type}] ${symbol}|${broker} | Hụt sau ${(elapsed / 60000).toFixed(1)} phút → reset`);
+    alertTracker.delete(key);
+  }
+  // Chưa đến 10 phút mà hụt → KHÔNG clear, giữ nguyên startTime
+}
+ 
 
 module.exports = {AutoReset };

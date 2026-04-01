@@ -16,6 +16,7 @@ const RedisH2 = require('../Module/Redis/redis.helper2');
 const { getAllBrokers , getBrokerMeta,getAllUniqueSymbols ,getSymbolAcrossBrokers , getAllBrokerMetaArray} = require("../Module/Redis/redis.price.query");
 const {flushAllRedis , getAllPricesByBroker ,getMultipleSymbolAcrossBrokersWithMetaFast , getRedis} = require('../Module/Redis/redis.helper2');
 const PriceFlush = require('../Module/Redis/priceBuffer.redisFlush');
+
 // const { getAllUniqueSymbols } = require("../Redis/redis.price.query");
 // RedisH.initRedis({
 //   host: '127.0.0.1',
@@ -115,10 +116,11 @@ router.get(`/${API_RESET}`,authRequired, async function(req, res, next) {
     });
   }else if(broker.toUpperCase() === 'ALL'){
     console.log("Initiating reset for ALL brokers for symbol:", symbol);
-    await Redis.publish("RESET_ALL", JSON.stringify({
-    Symbol: symbol,
-    Broker: "ALL-BROKERS",
-  }));
+     const Broker = await SymbolInfo(symbol);
+  //   await Redis.publish("RESET_ALL", JSON.stringify({
+  //   Symbol: symbol,
+  //   Broker: "ALL-BROKERS",
+  // }));
   console.log("Published RESET_ALL message to Redis.");
     return res.status(200).json({
       'mess' : message,
@@ -210,6 +212,12 @@ router.get(`/${VERSION}/:broker/:symbol/:points/test-reset`,authRequired, async 
 router.get(`/${VERSION}/test_time_open`,authRequired, async function(req, res, next) {
   await Redis.publish("RESET_ALL", JSON.stringify({
     Type : "Test_Time_Open",
+  }));
+  res.status(200).json({ message: "Reset all brokers initiated." });
+});
+router.get(`/${VERSION}/symbol-map`,authRequired, async function(req, res, next) {
+  await Redis.publish("RESET_ALL", JSON.stringify({
+    Type : "Symbol_Map",
   }));
   res.status(200).json({ message: "Reset all brokers initiated." });
 });
@@ -404,40 +412,85 @@ async function resetBrokersLoop() {
   }
 }
 
-const SymbolInfo = async (symbol) => {
-  const ALL_Symbol = await getAllUniqueSymbols();
-  const All_Broker = await getAllBrokers();
-  const symbols = ALL_Symbol
-        .map(s => String(s).trim())
-        .filter(Boolean);
-  const priceDataMap = await getMultipleSymbolAcrossBrokersWithMetaFast(symbols , All_Broker ,getRedis());
-  const priceData = priceDataMap.get(symbol);
-  if(!priceData || priceData.length <= 1) return null;
-  for(let i = 0 ; i < priceData.length ; i ++){
-    const broker = priceData[i].broker_;
-    const index = priceData[i].index;
-    const PORT = priceData[i]?.port || null;
-    if(i === 0){
-      if(index === '0' || index === 0){
-        console.log(`Broker ${broker} is in index 0, skipping.`);
-        continue;
-      }
-       await Redis.publish(String(PORT), JSON.stringify({
-        Symbol: symbol,
-        Broker: broker,
-      }));
-      await sleep(20);
-    }
-    await Redis.publish(String(PORT), JSON.stringify({
-        Symbol: symbol,
-        Broker: broker,
-      }));
-
-    console.log(broker);
-  }
+// const SymbolInfo = async (symbol) => {
+//   const ALL_Symbol = await getAllUniqueSymbols();
+//   const All_Broker = await getAllBrokers();
+//   const symbols = ALL_Symbol
+//         .map(s => String(s).trim())
+//         .filter(Boolean);
+//   const priceDataMap = await getMultipleSymbolAcrossBrokersWithMetaFast(symbols , All_Broker ,getRedis());
+//   const priceData = priceDataMap.get(symbol);
+//   if(!priceData || priceData.length <= 1) return null;
+//   for(let i = 0 ; i < priceData.length ; i ++){
+//     const broker = priceData[i].broker_;
+//     const index = priceData[i].index;
+//     const PORT = priceData[i]?.port || null;
+//     if(i === 0){
+//       if(index === '0' || index === 0){
+//         console.log(`Broker ${broker} is in index 0, skipping.`);
+//         continue;
+//       }
+//        await Redis.publish(String(PORT), JSON.stringify({
+//         Symbol: symbol,
+//         Broker: broker,
+//       }));
+//       await sleep(50);
+//     }else{
+//       await Redis.publish(String(PORT), JSON.stringify({
+//         Symbol: symbol,
+//         Broker: broker,
+//       }));
+//       await sleep(5);
+//     }
+    
+//   }
   
+//   return priceData;
+// }
+
+const SymbolInfo = async (symbol) => {
+  if (!symbol) return null;
+
+  const sym = String(symbol).toUpperCase().trim();
+
+  // ✅ Chỉ query đúng 1 symbol
+  const All_Broker = await getAllBrokers();
+  const priceDataMap = await getMultipleSymbolAcrossBrokersWithMetaFast(
+    [sym], All_Broker, getRedis()
+  );
+
+  const priceData = priceDataMap.get(sym);
+  if (!priceData || priceData.length <= 1) return null;
+
+  for (let i = 0; i < priceData.length; i++) {
+    const item   = priceData[i];
+    const broker = item.broker_;
+    const index  = item.index;
+    const PORT   = item?.port ?? null;
+
+    // ✅ Skip broker có index = 0
+    if (index === '0' || index === 0) {
+      console.log(`Broker ${broker} is in index 0, skipping.`);
+      continue;
+    }
+
+    // ✅ Không publish nếu không có PORT
+    if (!PORT) {
+      console.warn(`Broker ${broker} has no PORT, skipping.`);
+      continue;
+    }
+
+    await Redis.publish(String(PORT), JSON.stringify({
+      Symbol: sym,
+      Broker: broker,
+    }));
+
+    // ✅ Chỉ delay sau broker đầu tiên hợp lệ
+    if (i === 0) await sleep(200);
+  }
+
   return priceData;
-}
+};
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 

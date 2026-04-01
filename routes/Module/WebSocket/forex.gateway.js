@@ -8,6 +8,7 @@ const { getTimeGMT7 } = require('../Helpers/time');
 
 // Giữ Redis cho các operations khác (không liên quan price/ohlc)
 const Redis = require('../Redis/clientRedis');
+var { symbolAlias } = require('../../../models/index');
 const RequestDeduplicator = require('../Redis/RequestDeduplicator');
 const SymbolDebounceQueue = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
@@ -142,8 +143,9 @@ function setupWebSocketServer(port) {
                 if(element.Broker == Broker) {
                     if (element.ws.readyState === WebSocket.OPEN) {
                         if(channel.Symbol === "all") {
-                            const Mess = JSON.stringify({type: "Reset_All", Success: 1});
+                            const Mess = JSON.stringify({type: "Reset_All", Success: 1 });
                             element.ws.send(Mess);
+                             
                         } else if(channel.type === "destroy_broker") {
                             const Mess = JSON.stringify({type: "Destroy_Broker", Success: 1, message: channel.Symbol});
                             element.ws.send(Mess);
@@ -167,14 +169,41 @@ function setupWebSocketServer(port) {
                     element.ws.send(Mess);
                 }
             }
+        } else if(channel.Type === "Symbol_Map"){
+             for (const [id, element] of Client_Connected.entries()) {
+                if (element.ws.readyState === WebSocket.OPEN) {
+                    const client = Client_Connected.get(element.ws.id);
+                    const broker_ = client.Broker;
+                    brokerSession.delete(broker_);
+                    console.log(Color_Log_Success, `Publish Symbol_Map to Broker: ${broker_}`);
+                    await buildSymbolMapString(symbolAlias).then(payload => {
+                                    element.ws.send(JSON.stringify({
+                                        type: "symbol_map_main",
+                                        success: 1,
+                                        data: payload
+                                    }));
+                                }).catch(err => {
+                                    console.error("Error building symbol map:", err.message);
+                                });
+                }
+            }
         } else {
             for (const [id, element] of Client_Connected.entries()) {
                 if (element.ws.readyState === WebSocket.OPEN) {
                     if(element.Broker == Broker && (element.Index_Broker !== 0 || element.Index_Broker != null || element.Index_Broker !== '0')) {
                         if(channel.Symbol === "ALL-BROKERS") {
                             console.log(Color_Log_Success, `Publish to Broker: ${Broker}`);
-                            const Mess = JSON.stringify({type: "Reset_All", Success: 1});
-                            element.ws.send(Mess);
+                            // const Mess = JSON.stringify({type: "Reset_All", Success: 1});
+                            // element.ws.send(Mess);
+                             await buildSymbolMapString(symbolAlias).then(payload => {
+                                    ws.send(JSON.stringify({
+                                        type: "Reset_All",
+                                        success: 1,
+                                        data: payload
+                                    }));
+                                }).catch(err => {
+                                    console.error("Error building symbol map:", err.message);
+                                });
                         } else {
                             console.log(Color_Log_Success, `Publish to Symbol: ${channel.Symbol}`);
                             const Mess = JSON.stringify({type: "Reset_Only", Success: 1, message: channel.Symbol});
@@ -244,7 +273,7 @@ function setupWebSocketServer(port) {
     });
 
     wss.on('close', function close() {
-        clearInterval(interval);
+        // clearInterval(interval);
     });
 
     try {   
@@ -283,7 +312,45 @@ function setupWebSocketServer(port) {
                                 if("Equiti MT5" === BrokerName)log(colors.red, `FX_CLIENT - ${port}`, colors.green, VerNum);
                                 ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 1, message: `Version = ${Version}, Index = ${Index_Broker}, Broker = ${BrokerName}, Key_SECRET = ${Key_SECRET} => Success`, Data: getTimeGMT7('datetime')}));
                                 Client_Connected.set(ws.id, { ws, Broker: formattedBrokerName, Key_SECRET,Index_Broker });
+                                // const symbol_config = await symbolAlias.find();
+                            await buildSymbolMapString(symbolAlias).then(payload => {
+                                    ws.send(JSON.stringify({
+                                        type: "symbol_map",
+                                        success: 1,
+                                        data: payload
+                                    }));
+                                }).catch(err => {
+                                    console.error("Error building symbol map:", err.message);
+                                });
+//                                 const symbol_config = await symbolAlias.find(
+//   { active: true },
+// //   { symbol: 1, aliases: 1, _id: 0 }
+// ).lean();
 
+// const pairs = [];
+
+//                 for (const item of symbol_config) {
+//                 const symbol = String(item.symbol || "").trim().toUpperCase();
+//                 if (!symbol) continue;
+
+//                 // chính nó
+//                 pairs.push(`${symbol}=${symbol}`);
+
+//                 // aliases
+//                 for (const alias of item.aliases || []) {
+//                     const key = String(alias || "").trim().toUpperCase();
+//                     if (!key) continue;
+//                     pairs.push(`${key}=${symbol}`);
+//                 }
+//                 }
+
+//                 const payload = pairs.join("|");
+
+//                 ws.send(JSON.stringify({
+//                 type: "symbol_map",
+//                 success: 1,
+//                 data: payload
+//                 }));
                                 // ✅ chỉ cleanup khi đã accept connection
                                 await deleteBrokerAndRelatedIndex(formattedBrokerName).catch(() => {});
                                 await RedisH.deleteBroker(formattedBrokerName).catch(() => {});
@@ -305,8 +372,9 @@ function setupWebSocketServer(port) {
                                 ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 0, message: `Version = ${Version}, Index = ${Index_Broker} => Success, Broker = ${BrokerName} => Fail`, Data: getTimeGMT7('datetime')}));
                             }
                         } else {
-                            log(colors.red, `FX_CLIENT - ${port}`, colors.magenta, `${BrokerName} - Index: ${Index_Broker} is already connected by ${brokerData.Broker}`);
-                            ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 0, message: `Index: ${Index_Broker} is already connected by ${brokerData.Broker}`, Data: getTimeGMT7('datetime')}));
+                            log(colors.red, `FX_CLIENT - ${port}`, colors.magenta, `${BrokerName} - Index: ${Index_Broker} is already connected by ${brokerData.broker}`);
+                            
+                            ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 0, message: `Index: ${Index_Broker} is already connected by ${brokerData.broker}`, Data: getTimeGMT7('datetime')}));
                         }
                     }
                 }
@@ -578,6 +646,41 @@ function SaveAll_Info() {
     // }, 1000);
 
   
+}
+
+async function buildSymbolMapString(symbolAliasModel) {
+  const symbol_config = await symbolAliasModel.find(
+    { active: true },
+    { symbol: 1, aliases: 1, _id: 0 }
+  ).lean();
+
+  const pairs = [];
+  const seen = new Set();
+
+  for (const item of symbol_config) {
+    const symbol = String(item.symbol || "").trim().toUpperCase();
+    if (!symbol) continue;
+
+    // map chính nó
+    if (!seen.has(symbol)) {
+      pairs.push(`${symbol}=${symbol}`);
+      seen.add(symbol);
+    }
+
+    // map aliases
+    for (const alias of item.aliases || []) {
+      const key = String(alias || "").trim().toUpperCase();
+      if (!key) continue;
+
+      // tránh duplicate / overwrite
+      if (!seen.has(key)) {
+        pairs.push(`${key}=${symbol}`);
+        seen.add(key);
+      }
+    }
+  }
+
+  return pairs.join("|");
 }
 
 
