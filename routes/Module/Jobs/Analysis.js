@@ -33,11 +33,13 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
             if(SESSION === "Tokyo") SPREAD_X_SESSION = symbolConfig_data.Tokyo;
             if(SESSION === "London") SPREAD_X_SESSION = symbolConfig_data.London;
             if(SESSION === "NewYork") SPREAD_X_SESSION = symbolConfig_data.NewYork;
-            if( CURRENT.typeaccount === "STD" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_STD) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
-            if( CURRENT.typeaccount === "ECN" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_ECN) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
+            // if( CURRENT.typeaccount === "STD" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_STD) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_STD;
+            // if( CURRENT.typeaccount === "ECN" && SPREAD_MIN_CURRENT < symbolConfig_data.Spread_ECN) SPREAD_MIN_CURRENT = symbolConfig_data.Spread_ECN;
         }
 
-        let Digit_ = parseInt(CHECK.digit);
+        
+
+        let Digit_ = parseInt(CHECK.digit_root) || parseInt(CHECK.digit);
         let Point =  parseFloat(Digit(Digit_));
         let BID_CHECK = parseFloat(CHECK.bid_mdf);
         let ASK_CHECK = parseFloat(CHECK.ask_mdf);
@@ -47,6 +49,8 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
         let SPREAD_PLUS_POINT = parseFloat(SPREAD_PLUS * Point);
         let ASK_CR = parseFloat(CURRENT.ask_mdf);
         let BID_CR = parseFloat(CURRENT.bid_mdf);
+
+        
         //Type
         let Type = 'Delay Price';
         if(Number(data[i].timedelay)<0)
@@ -57,6 +61,8 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
     //   if(symbol === "NZDUSD" && CURRENT.broker ==="valutrade-mt5") console.log("SPREAD MIN: " , SPREAD_MIN_CURRENT ,
     //     " , Spread x: ", SPREAD_X_SESSION ,
     //     " , Spread X Cr: ", spread_plus , " , Spread S: ", Spread_Sync , Point_Spread , Price_BUY_CURRENT , " < " , Price_BUY_CHECK );
+
+    // if(symbol === "WTI")  console.log('SPREAD_MIN_CURRENT:', SPREAD_MIN_CURRENT, 'Point:', Point, 'Digit_:', Digit_ ,'SPREAD_POINT:', SPREAD_POINT ,'SPREAD_PLUS:', SPREAD_PLUS ,'SPREAD_PLUS_POINT:', SPREAD_PLUS_POINT ,'ASK_CHECK:', ASK_CHECK, 'BID_CHECK:', BID_CHECK, 'ASK_CR:', ASK_CR, 'BID_CR:', BID_CR ,parseFloat(BID_CHECK - SPREAD_PLUS_POINT));
         if(parseFloat(ASK_CR) < parseFloat(BID_CHECK - SPREAD_PLUS_POINT)){
             const KhoangCach = parseFloat((parseFloat(BID_CHECK - SPREAD_PLUS_POINT) - parseFloat(ASK_CR)))*parseFloat(Digit_Rec(parseInt(CHECK.digit))) ;
             // if(symbol === "NZDUSD") console.log(CURRENT.broker,"SPREAD MIN: " , SPREAD_MIN_CURRENT);
