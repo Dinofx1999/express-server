@@ -467,7 +467,7 @@ async function getAllPricesByBroker(broker) {
       ask_mdf: data.ask_mdf != null ? Number(data.ask_mdf) : null,
       spread_mdf: data.spread_mdf != null ? Number(data.spread_mdf) : null,
       digit: data.digit ?? "",
-
+      digit_root: data.digit_root ?? data.digit ?? "",
       // ✅ FIX: trả đủ time fields
       timedelay: data.timedelay ?? "",
       timecurrent: data.timecurrent ?? "",
@@ -735,7 +735,7 @@ async function getMultipleSymbolAcrossBrokersWithMetaFast(symbols, brokers, redi
       };
       if (Number(h.timedelay) < -process.env.SYMBOL_DELAY) continue;
       if (String(h.trade || "").toUpperCase() !== "TRUE") continue;
-      if (String(m.status || "") !== "True") continue;
+      // if (String(m.status || "") !== "True") continue;
      
       // ✅ NEW: timetrade phải có ít nhất 1 item status=true
       // timetrade có thể nằm trong h.timetrade (hoặc bạn đổi key tại đây nếu khác)

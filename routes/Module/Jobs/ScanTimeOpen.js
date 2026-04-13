@@ -168,31 +168,42 @@ async function startJob() {
 
 async function ScanTimeOpenSymbol() {
   const ALL_Symbol = await getAllUniqueSymbols();
+
   const All_Broker = await getAllBrokers();
 
   const symbols = (ALL_Symbol || [])
     .map((s) => String(s).trim().toUpperCase())
     .filter(Boolean);
-
+  // console.log(symbols);
   const priceDataMap_ = await getMultipleSymbolAcrossBrokersWithMetaFast(
     symbols,
     All_Broker,
     getRedis()
   );
-
+// console.log(priceDataMap_.get("GBPUSD"));
   const resetting = await getBrokerResetting();
-  if (Array.isArray(resetting) && resetting.length > 0) return;
+  // console.log(resetting);
+  // if (Array.isArray(resetting) && resetting.length > 0) return;
 
   // ✅ giữ logic: chạy song song
   symbols?.forEach((sym) => {
     (async () => {
       try {
+
         const Check_Reset = isForexSymbol(sym);
+         const priceData = priceDataMap_.get(sym);
+         const maxDigit = getMaxDigit(priceData); 
+const { doc, action } = await symbolAlias.upsertWithMaxDigits(sym, maxDigit,'admin');
+        // if(sym === "GBPUSD") {
+        //   console.log("doc", doc);
+        //   console.log("action", action);
+        // }
         if (Check_Reset) return;
 
-        const priceData = priceDataMap_.get(sym);
+       
+        
         if (!priceData || priceData.length <= 1) return;
-
+       
         priceData.forEach((data) => {
           (async () => {
             try {
@@ -202,6 +213,8 @@ async function ScanTimeOpenSymbol() {
               } catch {
                 timetrade = [];
               }
+              
+              
 
               if (String(data.index) === "0") return;
               const broker = data.Broker || data.broker_ || "no broker";
@@ -209,7 +222,7 @@ async function ScanTimeOpenSymbol() {
               // timecurrent + last_reset thường là "YYYY.MM.DD HH:MM:SS"
               const last_reset_str = data.last_reset || "";
               const time_current_str = data.timecurrent || "";
-
+              // console.log(data);
               const lastResetDate = toDate(last_reset_str) || new Date(0);
 
               for (const timeEntry of timetrade) {
@@ -233,7 +246,7 @@ async function ScanTimeOpenSymbol() {
                   const groupKey = "RESET";
                   const payload = { symbol: sym, broker };
                   queue.receive(groupKey, payload, async (symb, meta) => {
-                    console.log(`🚀 Processing: ${symb}`);
+                    console.log(`🚀 OpenTradeSymbol: ${symb}`);
                     console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);
 
                     await Redis.publish(
@@ -259,6 +272,11 @@ async function ScanTimeOpenSymbol() {
       }
     })();
   });
+}
+
+function getMaxDigit(brokers) {
+  if (!brokers?.length) return 0;
+  return Math.max(...brokers.map(b => parseInt(b.digit, 10) || 0));
 }
 
 module.exports = startJob;

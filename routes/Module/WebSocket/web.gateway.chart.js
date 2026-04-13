@@ -126,10 +126,11 @@ function buildChart({ chartId, title, broker_, brokerDisplay, ohlc, snap, note }
     timeUpdated: s.timeUpdated ?? '',
 
     symbol: s.symbol || '',
-    digit: s.digit || '',
+    digit: s.digit || 0,
     spread: s.spread || '',
     bid: s.bid || '',
     ask: s.ask || '',
+    digit_root: s.digit_root || 0,
 
     bid_mdf: s.bid_mdf || '',
     ask_mdf: s.ask_mdf || '',
@@ -252,7 +253,11 @@ function setupWebSocketServer(port) {
 
           // ========= Chart 3: OHLC of c2, price = mdf, digit = digit of c2 =========
           const s2 = snap2 || {};
+          const C33 =  convertCandlesToDigit(ohlc2, 2);
 
+            const B_copy = JSON.parse(JSON.stringify(ohlc2));
+            const B_norm = convertCandlesToDigit(B_copy, 2);
+              // console.log(B_norm);
           const snap3 = snap2
             ? {
                 ...s2,
@@ -261,20 +266,24 @@ function setupWebSocketServer(port) {
                 ask: s2.ask_mdf ?? s2.ask,
                 spread: s2.spread_mdf ?? s2.spread,
                 // digit vẫn là digit của chart2
-                digit: s2.digit ?? '',
+                digit: s2.digit_root ?? '',
               }
             : null;
 
+// console.log("snap3", snap1);
+          
           c3 = buildChart({
             chartId: 'c3',
             title: `${symbol} | ${broker_c2} | bid_mdf&ask_mdf`,
             broker_: broker_c2,
             brokerDisplay: broker_c2,
-            ohlc: ohlc2,
+            ohlc: B_norm,
             snap: snap3,
             note: snap3 ? undefined : 'NO_PRICE_SNAP_BEST',
           });
         }
+
+      
 
         // ========= Final =========
         const payload = {
@@ -311,6 +320,16 @@ function setupWebSocketServer(port) {
   });
 
   return wss;
+}
+
+function convertCandlesToDigit(candles, targetDigit) {
+  return candles.map(c => ({
+    time:  c.time,
+    open:  parseFloat(c.open.toFixed(targetDigit)),
+    high:  parseFloat(c.high.toFixed(targetDigit)),
+    low:   parseFloat(c.low.toFixed(targetDigit)),
+    close: parseFloat(c.close.toFixed(targetDigit)),
+  }));
 }
 
 module.exports = setupWebSocketServer;

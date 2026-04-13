@@ -418,7 +418,7 @@ async function getSymbolOfMinIndexBroker(symbol, opts = {}) {
     if (String(snap.trade || "").toUpperCase() !== "TRUE") continue;
     if (snap.timedelay && Number(snap.timedelay) < -1800) continue;
     if (!hasActiveTradeWindow(snap.timetrade)) continue;
-    if (String(status || "").trim() !== "True") continue;
+    // if (String(status || "").trim() !== "True") continue;
 
     // ✅ stale check
     const recv = Number(snap.receivedAt || 0);

@@ -69,6 +69,7 @@ function parseSnapshotHash(h, broker_) {
     ask_mdf: h.ask_mdf ?? '',
     spread_mdf: h.spread_mdf ?? '',
     digit: h.digit ?? '',
+    digit_root: h.digit_root ?? '',
     trade: h.trade ?? '',
     timeUpdated: h.timeUpdated ?? '',
     receivedAt: h.receivedAt ?? '',
@@ -128,7 +129,7 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
   // 2) lấy meta all brokers (status + auto_trade) - vẫn "nhẹ"
   const pipe2 = redis.pipeline();
   for (const b of brokers) {
-    pipe2.hmget(brokerMetaKey(b), "status", "auto_trade","timecurent","typeaccount");
+    pipe2.hmget(brokerMetaKey(b), "status", "auto_trade","timecurent","typeaccount","digit_root");
   }
   const res2 = await pipe2.exec();
 
@@ -140,6 +141,7 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
     if (e1 || !h || Object.keys(h).length === 0) continue;
 
     const snap = parseSnapshotHash(h, broker_);
+
     if (!snap) continue;
 
     // ✅ lọc timedelay
@@ -152,11 +154,16 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
     // snap.timetrade có thể là array hoặc string JSON
     if (!hasActiveTradeWindow(snap.timetrade)) continue;
 
+   
+
     const [e2, metaArr] = res2[i] || [];
     const status = !e2 && metaArr ? metaArr[0] : "";
     const auto_trade = !e2 && metaArr ? metaArr[1] : "";
     const timecurent  = !e2 && metaArr ? metaArr[2] : ""; // ✅ thêm
-    const typeaccount = !e2 && metaArr ? metaArr[3] : ""; // ✅ thêm
+    const typeaccount = !e2 && metaArr ? metaArr[ 3] : ""; // ✅ thêm
+    const digit_root = snap.digit_root; // ✅ thêm
+    
+    //  if(digit_root!=="null" || digit_root !== null || digit_root !== undefined) console.log(digit_root);
     if(diffSeconds(timecurent, getTimeGMT7()) > process.env.MAX_DELAY_BROKER) continue; // ✅ nếu timecurent cách hiện tại > 10s thì skip
     if (String(status || "").toUpperCase() !== "TRUE") continue;
 
@@ -165,6 +172,8 @@ async function getSymbolAcrossBrokersFast(sym, brokers, redis) {
     snap.auto_trade = auto_trade ?? "";
     snap.timecurent = timecurent ?? "";
     snap.typeaccount = typeaccount ?? "";
+  //   snap.digit_root = digit_root ?? snap.digit ?? ""; // fallback digit_root về digit nếu không có
+  //  if(broker_ === "tesst") console.log("metaArr", snap);
     // console.log(`[WS_WEB_SYMBOL] include snap: ${sym} | broker: ${broker_} | timedelay: ${snap.timedelay} | timetrade: ${JSON.stringify(snap.timetrade)} | status: ${status} | auto_trade: ${auto_trade}`);
     out.push(snap);
   }

@@ -8,7 +8,7 @@ const { getTimeGMT7 } = require('../Helpers/time');
 
 // Giữ Redis cho các operations khác (không liên quan price/ohlc)
 const Redis = require('../Redis/clientRedis');
-var { symbolAlias } = require('../../../models/index');
+var { symbolAlias,symbolConfigs } = require('../../../models/index');
 const RequestDeduplicator = require('../Redis/RequestDeduplicator');
 const SymbolDebounceQueue = require('../Redis/DebounceQueue');
 const deduplicator = new RequestDeduplicator(Redis.client);
@@ -172,11 +172,10 @@ function setupWebSocketServer(port) {
         } else if(channel.Type === "Symbol_Map"){
              for (const [id, element] of Client_Connected.entries()) {
                 if (element.ws.readyState === WebSocket.OPEN) {
-                    const client = Client_Connected.get(element.ws.id);
-                    const broker_ = client.Broker;
-                    brokerSession.delete(broker_);
-                    console.log(Color_Log_Success, `Publish Symbol_Map to Broker: ${broker_}`);
-                    await buildSymbolMapString(symbolAlias).then(payload => {
+                    // const client = Client_Connected.get(element.ws.id);
+                    // const broker_ = client.Broker;
+                    // brokerSession.delete(broker_);
+                    await buildSymbolMapString(symbolAlias,symbolConfigs).then(payload => {
                                     element.ws.send(JSON.stringify({
                                         type: "symbol_map_main",
                                         success: 1,
@@ -193,17 +192,8 @@ function setupWebSocketServer(port) {
                     if(element.Broker == Broker && (element.Index_Broker !== 0 || element.Index_Broker != null || element.Index_Broker !== '0')) {
                         if(channel.Symbol === "ALL-BROKERS") {
                             console.log(Color_Log_Success, `Publish to Broker: ${Broker}`);
-                            // const Mess = JSON.stringify({type: "Reset_All", Success: 1});
-                            // element.ws.send(Mess);
-                             await buildSymbolMapString(symbolAlias).then(payload => {
-                                    ws.send(JSON.stringify({
-                                        type: "Reset_All",
-                                        success: 1,
-                                        data: payload
-                                    }));
-                                }).catch(err => {
-                                    console.error("Error building symbol map:", err.message);
-                                });
+                            const Mess = JSON.stringify({type: "Reset_All", Success: 1});
+                            element.ws.send(Mess);
                         } else {
                             console.log(Color_Log_Success, `Publish to Symbol: ${channel.Symbol}`);
                             const Mess = JSON.stringify({type: "Reset_Only", Success: 1, message: channel.Symbol});
@@ -313,7 +303,7 @@ function setupWebSocketServer(port) {
                                 ws.send(JSON.stringify({type: String(process.env.CHECK_FIRT), Success: 1, message: `Version = ${Version}, Index = ${Index_Broker}, Broker = ${BrokerName}, Key_SECRET = ${Key_SECRET} => Success`, Data: getTimeGMT7('datetime')}));
                                 Client_Connected.set(ws.id, { ws, Broker: formattedBrokerName, Key_SECRET,Index_Broker });
                                 // const symbol_config = await symbolAlias.find();
-                            await buildSymbolMapString(symbolAlias).then(payload => {
+                            await buildSymbolMapString(symbolAlias,symbolConfigs).then(payload => {
                                     ws.send(JSON.stringify({
                                         type: "symbol_map",
                                         success: 1,
@@ -440,7 +430,8 @@ function setupWebSocketServer(port) {
                                     logColor = colors.yellow;
                                 }
                                 
-                                log(
+                            //    if(Symbol==="WTI")
+                                 log(
                                     logColor,
                                     `${process.env.SYNC_PRICE}`,
                                     colors.reset,
@@ -475,6 +466,7 @@ function setupWebSocketServer(port) {
                                 // console.log("Received PRICE_SNAP from broker:", broker_, " index:", idx);
                                 // ✅ heartbeat for timeout + bind session to current ws
                                 const sess = touchBrokerSession(broker_, ws, idx);
+                                // if(rawData.broker_ === "tesst") console.log("Received digit_root in OHLC_SNAP:", rawData);
 
                                 // ✅ tud gate theo broker session (NOT per ws)
                                 // if (!shouldAcceptTud(broker_, rawData.tud)) return;
@@ -498,7 +490,7 @@ function setupWebSocketServer(port) {
                                 const rawData = data.data || {};
                                 const broker_ = formatString(rawData.broker_ || rawData.broker);
                                 const idx = rawData.indexBroker ?? rawData.index ?? ws.__indexBroker ?? "";
-
+                                
                                 touchBrokerSession(broker_, ws, idx);
 
                                 await saveOHLC_SNAP_ArrayOnly(data);
@@ -648,39 +640,88 @@ function SaveAll_Info() {
   
 }
 
-async function buildSymbolMapString(symbolAliasModel) {
+// async function buildSymbolMapString(symbolAliasModel) {
+//   const symbol_config = await symbolAliasModel.find(
+//     { active: true },
+//     { symbol: 1, aliases: 1, _id: 0 }
+//   ).lean();
+
+//   const pairs = [];
+//   const seen = new Set();
+
+//   for (const item of symbol_config) {
+//     const symbol = String(item.symbol || "").trim().toUpperCase();
+//     if (!symbol) continue;
+
+//     // map chính nó
+//     if (!seen.has(symbol)) {
+//       pairs.push(`${symbol}=${symbol}`);
+//       seen.add(symbol);
+//     }
+
+//     // map aliases
+//     for (const alias of item.aliases || []) {
+//       const key = String(alias || "").trim().toUpperCase();
+//       if (!key) continue;
+
+//       // tránh duplicate / overwrite
+//       if (!seen.has(key)) {
+//         pairs.push(`${key}=${symbol}`);
+//         seen.add(key);
+//       }
+//     }
+//   }
+
+//   return pairs.join("|");
+// }
+
+async function buildSymbolMapString(symbolAliasModel, symbolConfigsModel) {
+  // 1. Load alias map
   const symbol_config = await symbolAliasModel.find(
     { active: true },
-    { symbol: 1, aliases: 1, _id: 0 }
+    { symbol: 1, aliases: 1, maxDigits: 1, _id: 0 }
   ).lean();
 
+  // 2. Load spread config — index theo symbol để lookup O(1)
+  const spreadList = await symbolConfigsModel.find({}).lean();
+  const spreadMap  = new Map();
+  for (const s of spreadList) {
+    const sym = String(s.Symbol || '').toUpperCase().trim();
+    spreadMap.set(sym, {
+      std: s.Spread_STD ?? 0,
+      ecn: s.Spread_ECN ?? 0,
+    });
+  }
+
   const pairs = [];
-  const seen = new Set();
+  const seen  = new Set();
 
   for (const item of symbol_config) {
-    const symbol = String(item.symbol || "").trim().toUpperCase();
+    const symbol    = String(item.symbol || '').trim().toUpperCase();
     if (!symbol) continue;
+
+    const maxDigits = parseInt(item.maxDigits, 10) || 0;
+    const spread    = spreadMap.get(symbol) || { std: 0, ecn: 0 };
+
+    // "SYMBOL:maxDigits:spread_std:spread_ecn"
+    const val = `${symbol}:${maxDigits}:${spread.std}:${spread.ecn}`;
 
     // map chính nó
     if (!seen.has(symbol)) {
-      pairs.push(`${symbol}=${symbol}`);
+      pairs.push(`${symbol}=${val}`);
       seen.add(symbol);
     }
 
     // map aliases
     for (const alias of item.aliases || []) {
-      const key = String(alias || "").trim().toUpperCase();
-      if (!key) continue;
-
-      // tránh duplicate / overwrite
-      if (!seen.has(key)) {
-        pairs.push(`${key}=${symbol}`);
-        seen.add(key);
-      }
+      const key = String(alias || '').trim().toUpperCase();
+      if (!key || seen.has(key)) continue;
+      pairs.push(`${key}=${val}`);
+      seen.add(key);
     }
   }
 
-  return pairs.join("|");
+  return pairs.join('|');
 }
 
 

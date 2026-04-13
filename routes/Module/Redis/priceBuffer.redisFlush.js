@@ -120,6 +120,7 @@ function updatePriceBufferFromMT4(rawData) {
 
         // Digit & trạng thái
         digit: parseIntSafe(symData.digit, 5),
+        digit_root: parseIntSafe(symData.digit_root, symData.digit),
         trade: String(symData.trade ?? "false"),
         timedelay: parseIntSafe(symData.timedelay),
         broker_sync: symData.broker_sync === "NULL" ? null : (symData.broker_sync || null),

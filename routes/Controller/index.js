@@ -458,7 +458,6 @@ const SymbolInfo = async (symbol) => {
   const priceDataMap = await getMultipleSymbolAcrossBrokersWithMetaFast(
     [sym], All_Broker, getRedis()
   );
-
   const priceData = priceDataMap.get(sym);
   if (!priceData || priceData.length <= 1) return null;
 
