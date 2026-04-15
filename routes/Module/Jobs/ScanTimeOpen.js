@@ -4,6 +4,7 @@ const { getTimeGMT7 , diffSeconds} = require("../Helpers/time");
 const { isForexSymbol } = require("../Helpers/typeSymbol");
 const SymbolDebounceQueue = require("../Redis/DebounceQueue");
 const { configAdmin ,symbolAlias } = require("../../../models/index");
+const { getOHLC_cached,getOHLC } = require("../Hooks/ohlc");
 // var { symbolAlias } = require('../../../models/index');
 
 const {
@@ -23,6 +24,7 @@ const queue = new SymbolDebounceQueue({
 });
 
 let config;
+const pendingResetMap = new Map();
 
 // ================================
 // Helpers time
@@ -135,6 +137,7 @@ async function startJob() {
 
       if (Check_Run === true) {
         await ScanTimeOpenSymbol();
+        await processPendingReset(queue, Redis);
       }
     } catch (err) {
       console.error(`[JOB ${process.pid}] Scan error:`, err);
@@ -142,6 +145,10 @@ async function startJob() {
 
     isRunning = false;
   }, intervalMs);
+
+//   setInterval(async () => {
+  
+// }, 1000);
 
   // ===========================
   // Get Config Admin
@@ -240,27 +247,49 @@ const { doc, action } = await symbolAlias.upsertWithMaxDigits(sym, maxDigit,'adm
                 if (timeToSeconds(openT) > timeToSeconds(closeT)) {
                   openDate.setDate(openDate.getDate() - 1);
                 }
-
+               
+                const OHLC = await getOHLC_cached(broker, sym);
+                //  console.log(data);
                 // ✅ so bằng timestamp
-                if (status === "true" && lastResetDate.getTime() < openDate.getTime() && diffSeconds(data.timecurent_broker , getTimeGMT7()) <= 2) {
-                  const groupKey = "RESET";
-                  const payload = { symbol: sym, broker };
-                  queue.receive(groupKey, payload, async (symb, meta) => {
-                    console.log(`🚀 OpenTradeSymbol: ${symb}`);
-                    console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);
+                if (
+  status === "true" &&
+  lastResetDate.getTime() < openDate.getTime() &&
+  diffSeconds(data.timecurent_broker, getTimeGMT7()) <= 2
+) {
+  if (compareLastOHLC(OHLC, data.timecurrent)) {
+    const groupKey = "RESET";
+    const payload = { symbol: sym, broker };
 
-                    await Redis.publish(
-                      "RESET_ALL",
-                      JSON.stringify({
-                        Symbol: symb,
-                        Broker: "ALL-BROKERS-SYMBOL",
-                      })
-                    );
-                  });
+    queue.receive(groupKey, payload, async (symb, meta) => {
+      console.log(`🚀 OpenTradeSymbol: ${symb}`);
+      console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);
 
-                  // nếu muốn chỉ trigger 1 lần / symbol / vòng scan thì break ở đây
-                  // break;
-                }
+      await Redis.publish(
+        "RESET_ALL",
+        JSON.stringify({
+          Symbol: symb,
+          Broker: "ALL-BROKERS-SYMBOL",
+        })
+      );
+    });
+  } else {
+    const pendingKey = getPendingResetKey(sym, broker);
+
+    pendingResetMap.set(pendingKey, {
+      sym,
+      broker,
+      OHLC,
+      data,
+      openDate,
+      lastResetDate,
+      status,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    console.log(`⏳ Lưu pending RESET: ${sym} - ${broker}`);
+  }
+}
               }
             } catch (err) {
               console.error(`[ScanTimeOpen] Error processing data for ${sym}:`, err.message);
@@ -272,6 +301,76 @@ const { doc, action } = await symbolAlias.upsertWithMaxDigits(sym, maxDigit,'adm
       }
     })();
   });
+}
+
+function compareLastOHLC(ohlc, timeStr) {
+  if (!ohlc || ohlc.length === 0) return false;
+
+  // 1. Lấy HH:mm từ time "2026.04.15 08:54"
+  const timePart = timeStr.split(' ')[1]; // "08:54"
+
+  // 2. Lấy phần tử cuối
+  const lastCandle = ohlc[ohlc.length - 1];
+  const lastTime = lastCandle.time; // "08:51"
+
+  // 3. So sánh
+  return timePart === lastTime;
+}
+
+function getPendingResetKey(sym, broker) {
+  return `${sym}__${broker}`;
+}
+
+async function processPendingReset(queue, Redis) {
+  for (const [key, item] of pendingResetMap.entries()) {
+    try {
+      const {
+        sym,
+        broker,
+        OHLC,
+        data,
+        openDate,
+        lastResetDate,
+        status,
+      } = item;
+
+      // Nếu điều kiện gốc không còn đúng thì bỏ
+      if (
+        status !== "true" ||
+        lastResetDate.getTime() >= openDate.getTime() ||
+        diffSeconds(data.timecurent_broker, getTimeGMT7()) > 2
+      ) {
+        pendingResetMap.delete(key);
+        continue;
+      }
+
+      // Kiểm tra lại compareLastOHLC
+      if (compareLastOHLC(OHLC, data.timecurrent)) {
+        const groupKey = "RESET";
+        const payload = { symbol: sym, broker };
+
+        queue.receive(groupKey, payload, async (symb, meta) => {
+          console.log(`🚀 OpenTradeSymbol (retry success): ${symb}`);
+          console.log(`Brokers đã gửi: ${meta.brokers.join(", ")}`);
+
+          await Redis.publish(
+            "RESET_ALL",
+            JSON.stringify({
+              Symbol: symb,
+              Broker: "ALL-BROKERS-SYMBOL",
+            })
+          );
+        });
+
+        pendingResetMap.delete(key);
+      } else {
+        // vẫn false => giữ lại
+        console.log(`⏳ Pending RESET chưa khớp time: ${sym} - ${broker}`);
+      }
+    } catch (err) {
+      console.error(`❌ processPendingReset error [${key}]:`, err.message);
+    }
+  }
 }
 
 function getMaxDigit(brokers) {

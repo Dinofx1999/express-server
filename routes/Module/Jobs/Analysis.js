@@ -64,7 +64,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
 
     // if(symbol === "WTI")  console.log('SPREAD_MIN_CURRENT:', SPREAD_MIN_CURRENT, 'Point:', Point, 'Digit_:', Digit_ ,'SPREAD_POINT:', SPREAD_POINT ,'SPREAD_PLUS:', SPREAD_PLUS ,'SPREAD_PLUS_POINT:', SPREAD_PLUS_POINT ,'ASK_CHECK:', ASK_CHECK, 'BID_CHECK:', BID_CHECK, 'ASK_CR:', ASK_CR, 'BID_CR:', BID_CR ,parseFloat(BID_CHECK - SPREAD_PLUS_POINT));
         if(parseFloat(ASK_CR) < parseFloat(BID_CHECK - SPREAD_PLUS_POINT)){
-            const KhoangCach = parseFloat((parseFloat(BID_CHECK - SPREAD_PLUS_POINT) - parseFloat(ASK_CR)))*parseFloat(Digit_Rec(parseInt(CHECK.digit))) ;
+            const KhoangCach = parseFloat((parseFloat(BID_CHECK - SPREAD_PLUS_POINT) - parseFloat(ASK_CR)))*parseFloat(Digit_Rec(parseInt(CHECK.digit_root) || parseInt(CHECK.digit))) ;
             // if(symbol === "NZDUSD") console.log(CURRENT.broker,"SPREAD MIN: " , SPREAD_MIN_CURRENT);
             const timeStart = getTimeGMT7();
             const Payload = {
@@ -96,7 +96,7 @@ const {Insert_UpdateAnalysisConfig} = require('../../Database/analysis-config.he
 
         if(parseFloat(BID_CR) > parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)){
             const timeStart = getTimeGMT7();
-            const KhoangCach = parseFloat((parseFloat(BID_CR) - parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)))*parseFloat(Digit_Rec(parseInt(CHECK.digit))) ;
+            const KhoangCach = parseFloat((parseFloat(BID_CR) - parseFloat(ASK_CHECK + SPREAD_PLUS_POINT)))*parseFloat(Digit_Rec(parseInt(CHECK.digit_root) || parseInt(CHECK.digit))) ;
             const Payload = {
                     Broker: CURRENT.broker,
                     TimeStart: timeStart,
